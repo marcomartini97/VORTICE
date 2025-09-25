@@ -1,0 +1,3 @@
+[submodule "VORTICE-vdi"]
+	path = VORTICE-vdi
+	url = git@github.com:marcomartini97/VORTICE-vdi.git

@@ -1,0 +1,11 @@
+services:
+  vortice:
+    image: vortice
+    container_name: vortice
+    ports:
+      - "3389:3389"
+    volumes:
+      - /run/podman/podman.sock:/run/podman/podman.sock
+      - /etc/pam.d/vdi-broker:/etc/pam.d/vdi-broker:ro
+      - ./VORTICE-vdi:/etc/vdi/VORTICE-vdi
+    restart: unless-stopped

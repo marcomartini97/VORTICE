@@ -1,0 +1,5540 @@
+From 55ae99663c2bfafc021f4283ff09d4e08a8c19de Mon Sep 17 00:00:00 2001
+From: Marco Martini <deckedspring@gmail.com>
+Date: Mon, 18 Nov 2024 15:32:53 +0100
+Subject: [PATCH 01/17] Add support for SurfaceBits callback
+
+---
+ server/proxy/pf_update.c | 36 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/server/proxy/pf_update.c b/server/proxy/pf_update.c
+index e57281039..f4fb6ce15 100644
+--- a/server/proxy/pf_update.c
++++ b/server/proxy/pf_update.c
+@@ -129,6 +129,40 @@ static BOOL pf_client_bitmap_update(rdpContext* context, const BITMAP_UPDATE* bi
+ 	return ps->update->BitmapUpdate(ps, bitmap);
+ }
+ 
++
++static BOOL pf_client_surface_bits(rdpContext* context, const SURFACE_BITS_COMMAND* cmd)
++{
++	pClientContext* pc = (pClientContext*)context;
++	proxyData* pdata = NULL;
++	rdpContext* ps = NULL;
++	WINPR_ASSERT(pc);
++	pdata = pc->pdata;
++	WINPR_ASSERT(pdata);
++	ps = (rdpContext*)pdata->ps;
++	WINPR_ASSERT(ps);
++	WINPR_ASSERT(ps->update);
++	WINPR_ASSERT(ps->update->SurfaceBits);
++	WLog_DBG(TAG, "called");
++	return ps->update->SurfaceBits(ps, cmd);
++}
++
++
++static BOOL pf_client_surface_frame_marker(rdpContext* context, const SURFACE_FRAME_MARKER* marker)
++{
++	pClientContext* pc = (pClientContext*)context;
++	proxyData* pdata = NULL;
++	rdpContext* ps = NULL;
++	WINPR_ASSERT(pc);
++	pdata = pc->pdata;
++	WINPR_ASSERT(pdata);
++	ps = (rdpContext*)pdata->ps;
++	WINPR_ASSERT(ps);
++	WINPR_ASSERT(ps->update);
++	WINPR_ASSERT(ps->update->SurfaceFrameMarker);
++	WLog_DBG(TAG, "called");
++	return ps->update->SurfaceFrameMarker(ps, marker);
++}
++
+ static BOOL pf_client_desktop_resize(rdpContext* context)
+ {
+ 	pClientContext* pc = (pClientContext*)context;
+@@ -600,6 +634,8 @@ void pf_client_register_update_callbacks(rdpUpdate* update)
+ 	update->BeginPaint = pf_client_begin_paint;
+ 	update->EndPaint = pf_client_end_paint;
+ 	update->BitmapUpdate = pf_client_bitmap_update;
++	update->SurfaceBits = pf_client_surface_bits;
++	update->SurfaceFrameMarker = pf_client_surface_frame_marker;
+ 	update->DesktopResize = pf_client_desktop_resize;
+ 	update->RemoteMonitors = pf_client_remote_monitors;
+ 	update->SaveSessionInfo = pf_client_save_session_info;
+-- 
+2.51.0
+
+
+From d75b9453770e25af784c221a368e38851a5e0860 Mon Sep 17 00:00:00 2001
+From: Marco Martini <deckedspring@gmail.com>
+Date: Thu, 21 Nov 2024 16:35:11 +0100
+Subject: [PATCH 02/17] Initial proxy module, just hijacks the IP to a fixed
+ one and adds Username/Domain/Password if empty
+
+---
+ .../proxy/modules/vdi_broker/CMakeLists.txt   |  52 ++
+ .../proxy/modules/vdi_broker/vdi_broker.cpp   | 446 ++++++++++++++++++
+ 2 files changed, 498 insertions(+)
+ create mode 100644 server/proxy/modules/vdi_broker/CMakeLists.txt
+ create mode 100644 server/proxy/modules/vdi_broker/vdi_broker.cpp
+
+diff --git a/server/proxy/modules/vdi_broker/CMakeLists.txt b/server/proxy/modules/vdi_broker/CMakeLists.txt
+new file mode 100644
+index 000000000..2463f80b8
+--- /dev/null
++++ b/server/proxy/modules/vdi_broker/CMakeLists.txt
+@@ -0,0 +1,52 @@
++#
++# FreeRDP: A Remote Desktop Protocol Implementation
++# FreeRDP Proxy Server Demo C++ Module
++#
++# Copyright 2019 Kobi Mizrachi <kmizrachi18@gmail.com>
++# Copyright 2021 Armin Novak <anovak@thincast.com>
++# Copyright 2021 Thincast Technologies GmbH
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++#
++
++cmake_minimum_required(VERSION 3.13)
++
++if(POLICY CMP0091)
++	cmake_policy(SET CMP0091 NEW)
++endif()
++if (NOT FREERDP_DEFAULT_PROJECT_VERSION)
++	set(FREERDP_DEFAULT_PROJECT_VERSION "1.0.0.0")
++endif()
++
++project(proxy-vdi-broker-plugin
++	VERSION ${FREERDP_DEFAULT_PROJECT_VERSION}
++       	LANGUAGES CXX
++)
++
++message("project ${PROJECT_NAME} is using version ${PROJECT_VERSION}")
++
++set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../../../cmake/)
++include(CommonConfigOptions)
++include(CXXCompilerFlags)
++
++set(CMAKE_CXX_STANDARD 17)
++set(CMAKE_CXX_STANDARD_REQUIRED ON)
++
++set(SRCS
++	vdi_broker.cpp
++)
++AddTargetWithResourceFile(${PROJECT_NAME} FALSE "${PROJECT_VERSION}" SRCS FALSE)
++
++target_link_libraries(${PROJECT_NAME} winpr)
++
++install(TARGETS ${PROJECT_NAME} DESTINATION ${FREERDP_PROXY_PLUGINDIR})
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+new file mode 100644
+index 000000000..aebe36f89
+--- /dev/null
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -0,0 +1,446 @@
++/**
++ * FreeRDP: A Remote Desktop Protocol Implementation
++ * FreeRDP Proxy Server Demo C++ Module
++ *
++ * Copyright 2019 Kobi Mizrachi <kmizrachi18@gmail.com>
++ * Copyright 2021 Armin Novak <anovak@thincast.com>
++ * Copyright 2021 Thincast Technologies GmbH
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#include "freerdp/server/proxy/proxy_context.h"
++
++#include <iostream>
++
++#include <freerdp/api.h>
++#include <freerdp/scancode.h>
++#include <freerdp/server/proxy/proxy_modules_api.h>
++
++#define TAG MODULE_TAG("demo")
++
++struct demo_custom_data
++{
++	proxyPluginsManager* mgr;
++	int somesetting;
++};
++
++static constexpr char plugin_name[] = "vdi-broker";
++static constexpr char plugin_desc[] = "this is a test plugin";
++
++static BOOL demo_plugin_unload(proxyPlugin* plugin)
++{
++	WINPR_ASSERT(plugin);
++
++	std::cout << "C++ demo plugin: unloading..." << std::endl;
++
++	/* Here we have to free up our custom data storage. */
++	if (plugin)
++		delete static_cast<struct demo_custom_data*>(plugin->custom);
++
++	return TRUE;
++}
++
++static BOOL demo_client_init_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
++{
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(custom);
++
++	WLog_INFO(TAG, "called");
++	return TRUE;
++}
++
++static BOOL demo_client_uninit_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
++{
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(custom);
++
++	WLog_INFO(TAG, "called");
++	return TRUE;
++}
++
++static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
++{
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(pdata->pc);
++	WINPR_ASSERT(custom);
++
++        //Set target to another thing
++	auto settings = pdata->pc->context.settings;
++	WLog_INFO(TAG, "Setting target address: %s", "127.0.0.1");
++	WLog_INFO(TAG, "User: %s", freerdp_settings_get_string(settings, FreeRDP_Username));
++	freerdp_settings_set_string(settings, FreeRDP_ServerHostname, "127.0.0.1");
++	if(!freerdp_settings_get_string(settings, FreeRDP_Username))
++		freerdp_settings_set_string(settings, FreeRDP_Username, "None");
++	if(!freerdp_settings_get_string(settings, FreeRDP_Password))
++		freerdp_settings_set_string(settings, FreeRDP_Password, "None");
++	if(!freerdp_settings_get_string(settings, FreeRDP_Domain))
++		freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
++
++
++	WLog_INFO(TAG, "called");
++	return TRUE;
++}
++
++static BOOL demo_client_post_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
++{
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(custom);
++
++	WLog_INFO(TAG, "called");
++
++
++	return TRUE;
++}
++
++static BOOL demo_client_post_disconnect(proxyPlugin* plugin, proxyData* pdata, void* custom)
++{
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(custom);
++
++	WLog_INFO(TAG, "called");
++	return TRUE;
++}
++
++static BOOL demo_client_x509_certificate(proxyPlugin* plugin, proxyData* pdata, void* custom)
++{
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(custom);
++
++	WLog_INFO(TAG, "called");
++	return TRUE;
++}
++
++static BOOL demo_client_login_failure(proxyPlugin* plugin, proxyData* pdata, void* custom)
++{
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(custom);
++
++	WLog_INFO(TAG, "called");
++	return TRUE;
++}
++
++static BOOL demo_client_end_paint(proxyPlugin* plugin, proxyData* pdata, void* custom)
++{
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(custom);
++
++	WLog_INFO(TAG, "called");
++	return TRUE;
++}
++
++static BOOL demo_client_redirect(proxyPlugin* plugin, proxyData* pdata, void* custom)
++{
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(custom);
++
++	WLog_INFO(TAG, "called");
++	return TRUE;
++}
++
++static BOOL demo_server_post_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
++{
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(pdata->pc);
++	WINPR_ASSERT(custom);
++
++
++
++	WLog_INFO(TAG, "called");
++	return TRUE;
++}
++
++static BOOL demo_server_peer_activate(proxyPlugin* plugin, proxyData* pdata, void* custom)
++{
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(custom);
++
++	WLog_INFO(TAG, "called");
++	return TRUE;
++}
++
++static BOOL demo_server_channels_init(proxyPlugin* plugin, proxyData* pdata, void* custom)
++{
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(custom);
++
++	WLog_INFO(TAG, "called");
++	return TRUE;
++}
++
++static BOOL demo_server_channels_free(proxyPlugin* plugin, proxyData* pdata, void* custom)
++{
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(custom);
++
++	WLog_INFO(TAG, "called");
++	return TRUE;
++}
++
++static BOOL demo_server_session_end(proxyPlugin* plugin, proxyData* pdata, void* custom)
++{
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(custom);
++
++	WLog_INFO(TAG, "called");
++	return TRUE;
++}
++
++static BOOL demo_filter_keyboard_event(proxyPlugin* plugin, proxyData* pdata, void* param)
++{
++	proxyPluginsManager* mgr = nullptr;
++	auto event_data = static_cast<const proxyKeyboardEventInfo*>(param);
++
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(event_data);
++
++	mgr = plugin->mgr;
++	WINPR_ASSERT(mgr);
++
++	if (event_data == nullptr)
++		return FALSE;
++
++	if (event_data->rdp_scan_code == RDP_SCANCODE_KEY_B)
++	{
++		/* user typed 'B', that means bye :) */
++		std::cout << "C++ demo plugin: aborting connection" << std::endl;
++		mgr->AbortConnect(mgr, pdata);
++	}
++
++	return TRUE;
++}
++
++static BOOL demo_filter_unicode_event(proxyPlugin* plugin, proxyData* pdata, void* param)
++{
++	proxyPluginsManager* mgr = nullptr;
++	auto event_data = static_cast<const proxyUnicodeEventInfo*>(param);
++
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(event_data);
++
++	mgr = plugin->mgr;
++	WINPR_ASSERT(mgr);
++
++	if (event_data == nullptr)
++		return FALSE;
++
++	if (event_data->code == 'b')
++	{
++		/* user typed 'B', that means bye :) */
++		std::cout << "C++ demo plugin: aborting connection" << std::endl;
++		mgr->AbortConnect(mgr, pdata);
++	}
++
++	return TRUE;
++}
++
++static BOOL demo_mouse_event(proxyPlugin* plugin, proxyData* pdata, void* param)
++{
++	auto event_data = static_cast<const proxyMouseEventInfo*>(param);
++
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(event_data);
++
++	WLog_INFO(TAG, "called %p", event_data);
++	return TRUE;
++}
++
++static BOOL demo_mouse_ex_event(proxyPlugin* plugin, proxyData* pdata, void* param)
++{
++	auto event_data = static_cast<const proxyMouseExEventInfo*>(param);
++
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(event_data);
++
++	WLog_INFO(TAG, "called %p", event_data);
++	return TRUE;
++}
++
++static BOOL demo_client_channel_data(proxyPlugin* plugin, proxyData* pdata, void* param)
++{
++	const auto* channel = static_cast<const proxyChannelDataEventInfo*>(param);
++
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(channel);
++
++	WLog_INFO(TAG, "%s [0x%04" PRIx16 "] got %" PRIuz, channel->channel_name, channel->channel_id,
++	          channel->data_len);
++	return TRUE;
++}
++
++static BOOL demo_server_channel_data(proxyPlugin* plugin, proxyData* pdata, void* param)
++{
++	const auto* channel = static_cast<const proxyChannelDataEventInfo*>(param);
++
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(channel);
++
++	WLog_WARN(TAG, "%s [0x%04" PRIx16 "] got %" PRIuz, channel->channel_name, channel->channel_id,
++	          channel->data_len);
++	return TRUE;
++}
++
++static BOOL demo_dynamic_channel_create(proxyPlugin* plugin, proxyData* pdata, void* param)
++{
++	const auto* channel = static_cast<const proxyChannelDataEventInfo*>(param);
++
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(channel);
++
++	WLog_WARN(TAG, "%s [0x%04" PRIx16 "]", channel->channel_name, channel->channel_id);
++	return TRUE;
++}
++
++static BOOL demo_server_fetch_target_addr(proxyPlugin* plugin, proxyData* pdata, void* param)
++{
++	auto event_data = static_cast<const proxyFetchTargetEventInfo*>(param);
++
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(event_data);
++
++	WLog_INFO(TAG, "called %p", event_data);
++
++	return TRUE;
++}
++
++static BOOL demo_server_peer_logon(proxyPlugin* plugin, proxyData* pdata, void* param)
++{
++	auto info = static_cast<const proxyServerPeerLogon*>(param);
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(info);
++	WINPR_ASSERT(info->identity);
++
++
++
++	WLog_INFO(TAG, "%d", info->automatic);
++	return TRUE;
++}
++
++static BOOL demo_dyn_channel_intercept_list(proxyPlugin* plugin, proxyData* pdata, void* arg)
++{
++	auto data = static_cast<proxyChannelToInterceptData*>(arg);
++
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(data);
++
++	WLog_INFO(TAG, "%s: %p", __func__, data);
++	return TRUE;
++}
++
++static BOOL demo_static_channel_intercept_list(proxyPlugin* plugin, proxyData* pdata, void* arg)
++{
++	auto data = static_cast<proxyChannelToInterceptData*>(arg);
++
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(data);
++
++	WLog_INFO(TAG, "%s: %p", __func__, data);
++	return TRUE;
++}
++
++static BOOL demo_dyn_channel_intercept(proxyPlugin* plugin, proxyData* pdata, void* arg)
++{
++	auto data = static_cast<proxyDynChannelInterceptData*>(arg);
++
++	WINPR_ASSERT(plugin);
++	WINPR_ASSERT(pdata);
++	WINPR_ASSERT(data);
++
++	WLog_INFO(TAG, "%s: %p", __func__, data);
++	return TRUE;
++}
++
++#ifdef __cplusplus
++extern "C"
++{
++#endif
++	FREERDP_API BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userdata);
++#ifdef __cplusplus
++}
++#endif
++
++BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userdata)
++{
++	struct demo_custom_data* custom = nullptr;
++	proxyPlugin plugin = {};
++
++	plugin.name = plugin_name;
++	plugin.description = plugin_desc;
++	plugin.PluginUnload = demo_plugin_unload;
++	//plugin.ClientInitConnect = demo_client_init_connect;
++	//plugin.ClientUninitConnect = demo_client_uninit_connect;
++	plugin.ClientPreConnect = demo_client_pre_connect;
++	//plugin.ClientPostConnect = demo_client_post_connect;
++	//plugin.ClientPostDisconnect = demo_client_post_disconnect;
++	//plugin.ClientX509Certificate = demo_client_x509_certificate;
++	//plugin.ClientLoginFailure = demo_client_login_failure;
++	//plugin.ClientEndPaint = demo_client_end_paint;
++	//plugin.ClientRedirect = demo_client_redirect;
++	//plugin.ServerPostConnect = demo_server_post_connect;
++	//plugin.ServerPeerActivate = demo_server_peer_activate;
++	//plugin.ServerChannelsInit = demo_server_channels_init;
++	//plugin.ServerChannelsFree = demo_server_channels_free;
++	//plugin.ServerSessionEnd = demo_server_session_end;
++	//plugin.KeyboardEvent = demo_filter_keyboard_event;
++	//plugin.UnicodeEvent = demo_filter_unicode_event;
++	//plugin.MouseEvent = demo_mouse_event;
++	//plugin.MouseExEvent = demo_mouse_ex_event;
++	//plugin.ClientChannelData = demo_client_channel_data;
++	//plugin.ServerChannelData = demo_server_channel_data;
++	//plugin.DynamicChannelCreate = demo_dynamic_channel_create;
++	//plugin.ServerFetchTargetAddr = demo_server_fetch_target_addr;
++	//plugin.ServerPeerLogon = demo_server_peer_logon;
++
++	plugin.StaticChannelToIntercept = demo_static_channel_intercept_list;
++	plugin.DynChannelToIntercept = demo_dyn_channel_intercept_list;
++	plugin.DynChannelIntercept = demo_dyn_channel_intercept;
++
++	plugin.userdata = userdata;
++
++	custom = new (struct demo_custom_data);
++	if (!custom)
++		return FALSE;
++
++	custom->mgr = plugins_manager;
++	custom->somesetting = 42;
++
++	plugin.custom = custom;
++	plugin.userdata = userdata;
++
++	return plugins_manager->RegisterPlugin(plugins_manager, &plugin);
++}
+-- 
+2.51.0
+
+
+From 9a2064347e87d46478756b432f181293efbc9e51 Mon Sep 17 00:00:00 2001
+From: Marco Martini <deckedspring@gmail.com>
+Date: Tue, 26 Nov 2024 15:25:23 +0100
+Subject: [PATCH 03/17] Initial podman container handling
+
+---
+ .../proxy/modules/vdi_broker/CMakeLists.txt   |  14 +-
+ .../proxy/modules/vdi_broker/vdi_broker.cpp   | 221 +++++++++++++++++-
+ 2 files changed, 229 insertions(+), 6 deletions(-)
+
+diff --git a/server/proxy/modules/vdi_broker/CMakeLists.txt b/server/proxy/modules/vdi_broker/CMakeLists.txt
+index 2463f80b8..d45f02702 100644
+--- a/server/proxy/modules/vdi_broker/CMakeLists.txt
++++ b/server/proxy/modules/vdi_broker/CMakeLists.txt
+@@ -33,6 +33,18 @@ project(proxy-vdi-broker-plugin
+        	LANGUAGES CXX
+ )
+ 
++# Find libcurl
++find_package(CURL REQUIRED)
++if(NOT CURL_FOUND)
++	message(FATAL_ERROR "libcurl not found")
++endif()
++
++# Find jsoncpp
++find_package(jsoncpp REQUIRED)
++if(NOT jsoncpp_FOUND)
++	message(FATAL_ERROR "jsoncpp not found")
++endif()
++
+ message("project ${PROJECT_NAME} is using version ${PROJECT_VERSION}")
+ 
+ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../../../cmake/)
+@@ -47,6 +59,6 @@ set(SRCS
+ )
+ AddTargetWithResourceFile(${PROJECT_NAME} FALSE "${PROJECT_VERSION}" SRCS FALSE)
+ 
+-target_link_libraries(${PROJECT_NAME} winpr)
++target_link_libraries(${PROJECT_NAME} winpr CURL::libcurl jsoncpp)
+ 
+ install(TARGETS ${PROJECT_NAME} DESTINATION ${FREERDP_PROXY_PLUGINDIR})
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index aebe36f89..2aa3cb7c8 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -22,12 +22,194 @@
+ #include "freerdp/server/proxy/proxy_context.h"
+ 
+ #include <iostream>
++#include <string>
++#include <curl/curl.h>
++#include <unistd.h>
++#include <jsoncpp/json/json.h>
++
+ 
+ #include <freerdp/api.h>
+ #include <freerdp/scancode.h>
+ #include <freerdp/server/proxy/proxy_modules_api.h>
++#include <sys/time.h>
++
++#define TAG MODULE_TAG("vdi_broker")
++
++/* Container Management Part */
++
++
++// Path to the Podman UNIX socket
++const char* PODMAN_SOCKET = "/var/run/podman/podman.sock";
++
++// Callback function to capture CURL response data
++static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
++    ((std::string*)userp)->append((char*)contents, size * nmemb);
++    return size * nmemb;
++}
++
++// Function to get container information via Podman RESTful API
++std::string get_container_info(const std::string& container_name) {
++    CURL* curl;
++    CURLcode res;
++    std::string response;
++
++    curl = curl_easy_init();
++    if (curl) {
++        std::string url = "http://d/v1.0.0/libpod/containers/" + container_name + "/json";
++
++        curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
++        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
++
++        // Set up the write callback to capture response data
++        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
++        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
++
++    	std::clog << "Get Container info" << std::endl;
++
++        // Perform the request
++        res = curl_easy_perform(curl);
++
++        if (res != CURLE_OK) {
++            std::cerr << "Failed to get container info: " << curl_easy_strerror(res) << std::endl;
++            response.clear();
++        }
++
++        long http_code = 0;
++        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
++
++        if (http_code == 404) {
++            response.clear(); // Container does not exist
++        } else if (http_code >= 400) {
++            std::cerr << "HTTP error code: " << http_code << std::endl;
++            response.clear();
++        }
+ 
+-#define TAG MODULE_TAG("demo")
++    	std::clog << "Get Container info - http code: " << http_code << std::endl;
++
++        curl_easy_cleanup(curl);
++    }
++    return response;
++}
++
++// Check if the container exists
++bool container_exists(const std::string& container_name) {
++    std::string info = get_container_info(container_name);
++    return !info.empty();
++}
++
++// Check if the container is running
++bool container_running(const std::string& container_name) {
++    std::string info = get_container_info(container_name);
++    if (info.empty()) {
++        return false;
++    }
++
++    Json::Value root;
++    Json::Reader reader;
++    if (!reader.parse(info, root)) {
++        std::cerr << "Failed to parse container JSON info." << std::endl;
++        return false;
++    }
++
++    std::string status = root["State"]["Status"].asString();
++    return status == "running";
++}
++
++// Start the container using Podman RESTful API
++bool start_container(const std::string& container_name) {
++    CURL* curl;
++    CURLcode res;
++    bool success = false;
++
++    curl = curl_easy_init();
++    if (curl) {
++        std::string url = "http://d/v1.0.0/libpod/containers/" + container_name + "/start";
++
++        curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
++        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
++        curl_easy_setopt(curl, CURLOPT_POST, 1L);
++
++        // Perform the request
++        res = curl_easy_perform(curl);
++
++        if (res == CURLE_OK) {
++            long http_code = 0;
++            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
++
++            if (http_code >= 200 && http_code < 300) {
++                success = true;
++            } else {
++                std::cerr << "Failed to start container, HTTP code: " << http_code << std::endl;
++            }
++        } else {
++            std::cerr << "Failed to start container: " << curl_easy_strerror(res) << std::endl;
++        }
++
++        curl_easy_cleanup(curl);
++    }
++    return success;
++}
++
++// Get the container's IP address
++std::string get_container_ip(const std::string& container_name) {
++    std::string info = get_container_info(container_name);
++    if (info.empty()) {
++        return "";
++    }
++
++    Json::Value root;
++    Json::Reader reader;
++    if (!reader.parse(info, root)) {
++        std::cerr << "Failed to parse container JSON info." << std::endl;
++        return "";
++    }
++
++    const Json::Value& networks = root["NetworkSettings"]["Networks"];
++    if (!networks.isObject()) {
++        std::cerr << "No network information available." << std::endl;
++        return "";
++    }
++
++    for (const auto& network_name : networks.getMemberNames()) {
++        const Json::Value& network = networks[network_name];
++        std::string ip = network["IPAddress"].asString();
++        if (!ip.empty()) {
++            return ip;
++        }
++    }
++    return "";
++}
++
++// Main function to manage the container
++std::string manage_container(const std::string& username, const std::string& container_prefix= "weston-") {
++    if (!container_exists(container_prefix + username)) {
++        // Create container using compose, suppose we're in the same directory as the compose file
++        std::string command = "env USERNAME=" + username + " podman-compose up -d";
++        int result = system(command.c_str());
++        if (result != 0) {
++            std::cerr << "Failed to create container using compose." << std::endl;
++            return "";
++        }
++    } else {
++        if (!container_running(container_prefix + username)) {
++            // Start the container
++            if (!start_container(container_prefix + username)) {
++                std::cerr << "Failed to start the container." << std::endl;
++                return "";
++            }
++        }
++    }
++
++    // Wait for the container to fully start
++    sleep(2);
++
++    // Get the container's IP address
++    std::string ip = get_container_ip(container_prefix + username);
++    if (ip.empty()) {
++        std::cerr << "Failed to retrieve the container's IP address." << std::endl;
++    }
++    return ip;
++}
+ 
+ struct demo_custom_data
+ {
+@@ -36,7 +218,7 @@ struct demo_custom_data
+ };
+ 
+ static constexpr char plugin_name[] = "vdi-broker";
+-static constexpr char plugin_desc[] = "this is a test plugin";
++static constexpr char plugin_desc[] = "Intercepts RDP Authentication and forwards the connection to an RDP Enabled Container";
+ 
+ static BOOL demo_plugin_unload(proxyPlugin* plugin)
+ {
+@@ -80,9 +262,11 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 
+         //Set target to another thing
+ 	auto settings = pdata->pc->context.settings;
+-	WLog_INFO(TAG, "Setting target address: %s", "127.0.0.1");
+-	WLog_INFO(TAG, "User: %s", freerdp_settings_get_string(settings, FreeRDP_Username));
+-	freerdp_settings_set_string(settings, FreeRDP_ServerHostname, "127.0.0.1");
++	auto username = freerdp_settings_get_string(settings, FreeRDP_Username);
++	WLog_INFO(TAG, "User: %s", username);
++	auto ip = manage_container(username);
++	WLog_INFO(TAG, "Setting target address: %s", ip);
++	freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip.c_str());
+ 	if(!freerdp_settings_get_string(settings, FreeRDP_Username))
+ 		freerdp_settings_set_string(settings, FreeRDP_Username, "None");
+ 	if(!freerdp_settings_get_string(settings, FreeRDP_Password))
+@@ -260,6 +444,32 @@ static BOOL demo_filter_unicode_event(proxyPlugin* plugin, proxyData* pdata, voi
+ 	return TRUE;
+ }
+ 
++void printDelayBetweenCalls() {
++    // Declare a static variable to hold the last time the function was called
++    static struct timeval lastTime = {0, 0};
++
++    // Get the current time
++    struct timeval currentTime;
++    gettimeofday(&currentTime, NULL);
++
++    // Check if the function has been called before
++    if (lastTime.tv_sec != 0 || lastTime.tv_usec != 0) {
++        // Calculate the delay in microseconds
++        long seconds = currentTime.tv_sec - lastTime.tv_sec;
++        long microseconds = currentTime.tv_usec - lastTime.tv_usec;
++        long totalMicroseconds = (seconds * 1000) + microseconds;
++
++        printf("Time delay between calls: %ld microseconds\n", totalMicroseconds);
++    } else {
++        // If this is the first call, print a message indicating so
++        printf("This is the first time the function is being called.\n");
++    }
++
++    // Update the lastTime variable with the current time
++    lastTime = currentTime;
++}
++
++
+ static BOOL demo_mouse_event(proxyPlugin* plugin, proxyData* pdata, void* param)
+ {
+ 	auto event_data = static_cast<const proxyMouseEventInfo*>(param);
+@@ -269,6 +479,7 @@ static BOOL demo_mouse_event(proxyPlugin* plugin, proxyData* pdata, void* param)
+ 	WINPR_ASSERT(event_data);
+ 
+ 	WLog_INFO(TAG, "called %p", event_data);
++	printDelayBetweenCalls();
+ 	return TRUE;
+ }
+ 
+-- 
+2.51.0
+
+
+From abf03e0bfcb76cbed450e219cc9feec0de679716 Mon Sep 17 00:00:00 2001
+From: Marco Martini <deckedspring@gmail.com>
+Date: Wed, 27 Nov 2024 12:28:14 +0000
+Subject: [PATCH 04/17] Fixed compiling on non-gentoo distros, added some
+ logging
+
+---
+ server/proxy/modules/vdi_broker/CMakeLists.txt | 10 ++++------
+ server/proxy/modules/vdi_broker/vdi_broker.cpp | 18 ++++++++++++------
+ 2 files changed, 16 insertions(+), 12 deletions(-)
+
+diff --git a/server/proxy/modules/vdi_broker/CMakeLists.txt b/server/proxy/modules/vdi_broker/CMakeLists.txt
+index d45f02702..e8e9f26b8 100644
+--- a/server/proxy/modules/vdi_broker/CMakeLists.txt
++++ b/server/proxy/modules/vdi_broker/CMakeLists.txt
+@@ -39,11 +39,9 @@ if(NOT CURL_FOUND)
+ 	message(FATAL_ERROR "libcurl not found")
+ endif()
+ 
+-# Find jsoncpp
+-find_package(jsoncpp REQUIRED)
+-if(NOT jsoncpp_FOUND)
+-	message(FATAL_ERROR "jsoncpp not found")
+-endif()
++find_package(PkgConfig REQUIRED)
++pkg_check_modules(JSONCPP jsoncpp)
++link_libraries(${JSONCPP_LIBRARIES})
+ 
+ message("project ${PROJECT_NAME} is using version ${PROJECT_VERSION}")
+ 
+@@ -59,6 +57,6 @@ set(SRCS
+ )
+ AddTargetWithResourceFile(${PROJECT_NAME} FALSE "${PROJECT_VERSION}" SRCS FALSE)
+ 
+-target_link_libraries(${PROJECT_NAME} winpr CURL::libcurl jsoncpp)
++target_link_libraries(${PROJECT_NAME} winpr CURL::libcurl ${JSONCPP_LIBRARIES})
+ 
+ install(TARGETS ${PROJECT_NAME} DESTINATION ${FREERDP_PROXY_PLUGINDIR})
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index 2aa3cb7c8..4bfb09138 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -25,7 +25,7 @@
+ #include <string>
+ #include <curl/curl.h>
+ #include <unistd.h>
+-#include <jsoncpp/json/json.h>
++#include <json/json.h>
+ 
+ 
+ #include <freerdp/api.h>
+@@ -64,8 +64,6 @@ std::string get_container_info(const std::string& container_name) {
+         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+ 
+-    	std::clog << "Get Container info" << std::endl;
+-
+         // Perform the request
+         res = curl_easy_perform(curl);
+ 
+@@ -84,7 +82,7 @@ std::string get_container_info(const std::string& container_name) {
+             response.clear();
+         }
+ 
+-    	std::clog << "Get Container info - http code: " << http_code << std::endl;
++    	std::clog << "Get Container info - http code: " << http_code << std::endl << "Response: " << res << std::endl; 
+ 
+         curl_easy_cleanup(curl);
+     }
+@@ -94,6 +92,9 @@ std::string get_container_info(const std::string& container_name) {
+ // Check if the container exists
+ bool container_exists(const std::string& container_name) {
+     std::string info = get_container_info(container_name);
++    if(info.empty()){
++	    std::clog << "Container doesn't exist: Create it" << std::endl;
++    }
+     return !info.empty();
+ }
+ 
+@@ -112,6 +113,7 @@ bool container_running(const std::string& container_name) {
+     }
+ 
+     std::string status = root["State"]["Status"].asString();
++    std::clog << "Container status:" << status << std::endl;
+     return status == "running";
+ }
+ 
+@@ -120,6 +122,7 @@ bool start_container(const std::string& container_name) {
+     CURL* curl;
+     CURLcode res;
+     bool success = false;
++    std::clog << "Starting container: " << container_name << std::endl;
+ 
+     curl = curl_easy_init();
+     if (curl) {
+@@ -145,6 +148,7 @@ bool start_container(const std::string& container_name) {
+             std::cerr << "Failed to start container: " << curl_easy_strerror(res) << std::endl;
+         }
+ 
++
+         curl_easy_cleanup(curl);
+     }
+     return success;
+@@ -164,6 +168,7 @@ std::string get_container_ip(const std::string& container_name) {
+         return "";
+     }
+ 
++    //Note this only works with podman default network
+     const Json::Value& networks = root["NetworkSettings"]["Networks"];
+     if (!networks.isObject()) {
+         std::cerr << "No network information available." << std::endl;
+@@ -174,6 +179,7 @@ std::string get_container_ip(const std::string& container_name) {
+         const Json::Value& network = networks[network_name];
+         std::string ip = network["IPAddress"].asString();
+         if (!ip.empty()) {
++	    std::clog << "Found IP: " << ip << std::endl;
+             return ip;
+         }
+     }
+@@ -264,9 +270,9 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 	auto settings = pdata->pc->context.settings;
+ 	auto username = freerdp_settings_get_string(settings, FreeRDP_Username);
+ 	WLog_INFO(TAG, "User: %s", username);
+-	auto ip = manage_container(username);
++	auto ip = manage_container(username).c_str();
+ 	WLog_INFO(TAG, "Setting target address: %s", ip);
+-	freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip.c_str());
++	freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip);
+ 	if(!freerdp_settings_get_string(settings, FreeRDP_Username))
+ 		freerdp_settings_set_string(settings, FreeRDP_Username, "None");
+ 	if(!freerdp_settings_get_string(settings, FreeRDP_Password))
+-- 
+2.51.0
+
+
+From 11a6b6040a972cd342fa5255ac15b8c73f4e301a Mon Sep 17 00:00:00 2001
+From: Marco Martini <deckedspring@gmail.com>
+Date: Mon, 2 Dec 2024 08:59:40 +0100
+Subject: [PATCH 05/17] Force RFX Codec
+
+---
+ server/proxy/pf_client.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/server/proxy/pf_client.c b/server/proxy/pf_client.c
+index 1255a4b5d..26e80a5bc 100644
+--- a/server/proxy/pf_client.c
++++ b/server/proxy/pf_client.c
+@@ -790,6 +790,9 @@ static BOOL pf_client_connect(freerdp* instance)
+ 	               freerdp_settings_get_bool(settings, FreeRDP_TlsSecurity),
+ 	               freerdp_settings_get_bool(settings, FreeRDP_NlaSecurity));
+ 
++	/* Set RFX Codec */
++	freerdp_settings_set_bool(settings, FreeRDP_RemoteFxCodec, true);
++
+ 	if (!freerdp_connect(instance))
+ 	{
+ 		if (!pf_modules_run_hook(pc->pdata->module, HOOK_TYPE_CLIENT_LOGIN_FAILURE, pc->pdata, pc))
+-- 
+2.51.0
+
+
+From 29b27c51dc6282c4ff43708954d048d0f5539b2d Mon Sep 17 00:00:00 2001
+From: Marco Martini <deckedspring@gmail.com>
+Date: Thu, 5 Dec 2024 16:51:51 +0100
+Subject: [PATCH 06/17] Fixed container management logic, added Codec parsing
+
+---
+ .../proxy/modules/vdi_broker/vdi_broker.cpp   | 223 ++++++++++++++----
+ server/proxy/pf_client.c                      |   2 -
+ server/proxy/pf_server.c                      |   4 +
+ 3 files changed, 183 insertions(+), 46 deletions(-)
+
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index 4bfb09138..e266dfa21 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -23,9 +23,10 @@
+ 
+ #include <iostream>
+ #include <string>
++#include <thread>
+ #include <curl/curl.h>
+ #include <unistd.h>
+-#include <json/json.h>
++#include <jsoncpp/json/json.h>
+ 
+ 
+ #include <freerdp/api.h>
+@@ -117,43 +118,97 @@ bool container_running(const std::string& container_name) {
+     return status == "running";
+ }
+ 
+-// Start the container using Podman RESTful API
+-bool start_container(const std::string& container_name) {
+-    CURL* curl;
+-    CURLcode res;
+-    bool success = false;
+-    std::clog << "Starting container: " << container_name << std::endl;
+-
+-    curl = curl_easy_init();
+-    if (curl) {
+-        std::string url = "http://d/v1.0.0/libpod/containers/" + container_name + "/start";
+-
+-        curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
+-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+-        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+-
+-        // Perform the request
+-        res = curl_easy_perform(curl);
+-
+-        if (res == CURLE_OK) {
+-            long http_code = 0;
+-            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+-
+-            if (http_code >= 200 && http_code < 300) {
+-                success = true;
++bool wait_for_weston(const std::string& container_name) {
++    std::clog << "Waiting for weston to be active in container: " << container_name << std::endl;
++
++    bool is_weston_active = false;
++    while (!is_weston_active) {
++        CURL* exec_curl = curl_easy_init();
++        if (exec_curl) {
++            std::string exec_url = "http://d/v1.0.0/libpod/containers/" + container_name + "/exec";
++            std::string exec_command = "{\"Cmd\": [\"systemctl\", \"status\", \"weston\"], \"AttachStdout\": true, \"AttachStderr\": true}";
++
++            struct curl_slist* headers = nullptr;
++            headers = curl_slist_append(headers, "Content-Type: application/json");
++
++            curl_easy_setopt(exec_curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
++            curl_easy_setopt(exec_curl, CURLOPT_URL, exec_url.c_str());
++            curl_easy_setopt(exec_curl, CURLOPT_HTTPHEADER, headers);
++            curl_easy_setopt(exec_curl, CURLOPT_POSTFIELDS, exec_command.c_str());
++
++            // Capture the response
++            std::string response;
++            curl_easy_setopt(exec_curl, CURLOPT_WRITEFUNCTION, [](void* contents, size_t size, size_t nmemb, void* userp) -> size_t {
++                ((std::string*)userp)->append((char*)contents, size * nmemb);
++                return size * nmemb;
++            });
++            curl_easy_setopt(exec_curl, CURLOPT_WRITEDATA, &response);
++
++            // Perform the exec request
++            CURLcode res = curl_easy_perform(exec_curl);
++
++            if (res == CURLE_OK) {
++                if (response.find("active (running)") != std::string::npos) {
++                    is_weston_active = true;
++                    std::clog << "Weston is active (running)." << std::endl;
++                } else {
++                    std::clog << "Weston is not active yet, retrying..." << std::endl;
++                }
+             } else {
+-                std::cerr << "Failed to start container, HTTP code: " << http_code << std::endl;
++                std::cerr << "Failed to execute command in container: " << curl_easy_strerror(res) << std::endl;
+             }
+-        } else {
+-            std::cerr << "Failed to start container: " << curl_easy_strerror(res) << std::endl;
+-        }
+ 
++            curl_slist_free_all(headers);
++            curl_easy_cleanup(exec_curl);
++        }
+ 
+-        curl_easy_cleanup(curl);
++        if (!is_weston_active) {
++            std::this_thread::sleep_for(std::chrono::seconds(2)); // Wait before retrying
++        }
+     }
+-    return success;
++
++    return is_weston_active;
+ }
+ 
++
++// Start the container using Podman RESTful API
++bool start_container(const std::string& container_name) {
++	CURL* curl;
++	CURLcode res;
++	bool success = false;
++	std::clog << "Starting container: " << container_name << std::endl;
++
++	curl = curl_easy_init();
++	if (curl) {
++		std::string url = "http://d/v1.0.0/libpod/containers/" + container_name + "/start";
++
++		curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
++		curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
++		curl_easy_setopt(curl, CURLOPT_POST, 1L);
++
++		// Perform the request to start the container
++		res = curl_easy_perform(curl);
++
++		if (res == CURLE_OK) {
++			long http_code = 0;
++			curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
++
++			if (http_code >= 200 && http_code < 300) {
++				success = true;
++				std::clog << "Container started successfully." << std::endl;
++			} else {
++				std::cerr << "Failed to start container, HTTP code: " << http_code << std::endl;
++			}
++		} else {
++			std::cerr << "Failed to start container: " << curl_easy_strerror(res) << std::endl;
++		}
++
++		curl_easy_cleanup(curl);
++	}
++	return success;
++}
++
++
+ // Get the container's IP address
+ std::string get_container_ip(const std::string& container_name) {
+     std::string info = get_container_info(container_name);
+@@ -186,16 +241,76 @@ std::string get_container_ip(const std::string& container_name) {
+     return "";
+ }
+ 
++
++bool create_container(const std::string& container_name, const std::string& username) {
++    CURL* curl;
++    CURLcode res;
++    bool success = false;
++    std::clog << "Creating container: " << container_name << std::endl;
++
++    curl = curl_easy_init();
++    if (curl) {
++        std::string url = "http://d/v1.0.0/libpod/containers/create";
++        std::string create_command = "{\"name\": \"" + container_name + "\","
++                                     "\"hostname\": \"" + container_name + "\","
++                                     "\"restart_policy\": \"unless-stopped\","
++                                     "\"env\": [\"XDG_RUNTIME_DIR=/tmp\", \"USERNAME=" + username + "\"],"
++                                     "\"volumes\": ["
++                                     "{\"source\": \"/sys/fs/cgroup\", \"destination\": \"/sys/fs/cgroup\", \"options\": [\"ro\"]},"
++                                     "{\"source\": \"/tmp/dbus\", \"destination\": \"/var/run/dbus\"},"
++                                     "{\"source\": \"/etc/passwd\", \"destination\": \"/etc/passwd\", \"options\": [\"ro\"]},"
++                                     "{\"source\": \"/etc/group\", \"destination\": \"/etc/group\", \"options\": [\"ro\"]},"
++                                     "{\"source\": \"/home/marco\", \"destination\": \"/mnt/home/marco\"},"
++                                     "{\"source\": \"/etc/weston\", \"destination\": \"/etc/weston\", \"options\": [\"ro\"]}],"
++                                     "\"cap_add\": [\"SYS_ADMIN\", \"NET_ADMIN\", \"SYS_PTRACE\", \"AUDIT_CONTROL\"],"
++                                     "\"security_opt\": [\"seccomp=unconfined\", \"label=disable\"],"
++                                     "\"devices\": ["
++                                     "{\"path_on_host\": \"/dev/fuse\"},"
++                                     "{\"path_on_host\": \"/dev/nvidia0\"},"
++                                     "{\"path_on_host\": \"/dev/nvidiactl\"},"
++                                     "{\"path_on_host\": \"/dev/nvidia-uvm\"},"
++                                     "{\"path_on_host\": \"/dev/dri/renderD128\"}],"
++                                     "\"image\": \"fedora_dev\","
++                                     "\"command\": [\"/usr/sbin/init\"]}";
++
++        struct curl_slist* headers = nullptr;
++        headers = curl_slist_append(headers, "Content-Type: application/json");
++
++        curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
++        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
++        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
++        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, create_command.c_str());
++
++        // Perform the request to create the container
++        res = curl_easy_perform(curl);
++
++        if (res == CURLE_OK) {
++            long http_code = 0;
++            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
++
++            if (http_code >= 200 && http_code < 300) {
++                success = true;
++                std::clog << "Container created successfully." << std::endl;
++            } else {
++                std::cerr << "Failed to create container, HTTP code: " << http_code << std::endl;
++            }
++        } else {
++            std::cerr << "Failed to create container: " << curl_easy_strerror(res) << std::endl;
++        }
++
++        curl_slist_free_all(headers);
++        curl_easy_cleanup(curl);
++    }
++
++    return success;
++}
++
++
+ // Main function to manage the container
+ std::string manage_container(const std::string& username, const std::string& container_prefix= "weston-") {
+     if (!container_exists(container_prefix + username)) {
+         // Create container using compose, suppose we're in the same directory as the compose file
+-        std::string command = "env USERNAME=" + username + " podman-compose up -d";
+-        int result = system(command.c_str());
+-        if (result != 0) {
+-            std::cerr << "Failed to create container using compose." << std::endl;
+-            return "";
+-        }
++    	create_container(container_prefix + username, username);
+     } else {
+         if (!container_running(container_prefix + username)) {
+             // Start the container
+@@ -206,8 +321,8 @@ std::string manage_container(const std::string& username, const std::string& con
+         }
+     }
+ 
+-    // Wait for the container to fully start
+-    sleep(2);
++    // Wait for weston to be up
++    wait_for_weston(container_prefix + username);
+ 
+     // Get the container's IP address
+     std::string ip = get_container_ip(container_prefix + username);
+@@ -268,9 +383,31 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 
+         //Set target to another thing
+ 	auto settings = pdata->pc->context.settings;
+-	auto username = freerdp_settings_get_string(settings, FreeRDP_Username);
+-	WLog_INFO(TAG, "User: %s", username);
+-	auto ip = manage_container(username).c_str();
++	std::string username = freerdp_settings_get_string(settings, FreeRDP_Username);
++	WLog_INFO(TAG, "Username full: %s", username);
++
++
++	//Set Default Codec
++	freerdp_settings_set_bool(settings, FreeRDP_NSCodec, true);
++	// Otherwise find the position of '#', then set RFX if found
++	auto hashPos = username.find('#');
++
++	if (hashPos != std::string::npos) { // Check if '#' is present
++		// Extract the part after '#'
++		auto codec = username.substr(hashPos + 1);
++
++		if (!codec.empty()) {
++			if(codec.compare("rfx") == 0) {
++				freerdp_settings_set_bool(settings, FreeRDP_RemoteFxCodec, true);
++				WLog_INFO(TAG, "USING CODEC RFX");
++			}
++		}
++	}
++	WLog_INFO(TAG, "USING CODEC NSC");
++
++	auto user = username.substr(0, hashPos);
++	WLog_INFO(TAG, "Username: %s", username);
++	auto ip = manage_container(user).c_str();
+ 	WLog_INFO(TAG, "Setting target address: %s", ip);
+ 	freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip);
+ 	if(!freerdp_settings_get_string(settings, FreeRDP_Username))
+@@ -280,8 +417,6 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 	if(!freerdp_settings_get_string(settings, FreeRDP_Domain))
+ 		freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
+ 
+-
+-	WLog_INFO(TAG, "called");
+ 	return TRUE;
+ }
+ 
+diff --git a/server/proxy/pf_client.c b/server/proxy/pf_client.c
+index 15e8af927..e03b2e409 100644
+--- a/server/proxy/pf_client.c
++++ b/server/proxy/pf_client.c
+@@ -790,8 +790,6 @@ static BOOL pf_client_connect(freerdp* instance)
+ 	               freerdp_settings_get_bool(settings, FreeRDP_TlsSecurity),
+ 	               freerdp_settings_get_bool(settings, FreeRDP_NlaSecurity));
+ 
+-	/* Set RFX Codec */
+-	freerdp_settings_set_bool(settings, FreeRDP_RemoteFxCodec, true);
+ 
+ 	if (!freerdp_connect(instance))
+ 	{
+diff --git a/server/proxy/pf_server.c b/server/proxy/pf_server.c
+index c30d303c2..58803a0a4 100644
+--- a/server/proxy/pf_server.c
++++ b/server/proxy/pf_server.c
+@@ -136,6 +136,10 @@ static BOOL pf_server_get_target_info(rdpContext* context, rdpSettings* settings
+ 		{
+ 			WINPR_ASSERT(config);
+ 
++			//SET SAM File hardcoded
++			if (!freerdp_settings_set_string(settings, FreeRDP_NtlmSamFile, "SAM"))
++				return FALSE;
++
+ 			if (config->TargetPort > 0)
+ 			{
+ 				if (!freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, config->TargetPort))
+-- 
+2.51.0
+
+
+From aceb2692ec7bb277f8c4603bde235e7c042d6bdd Mon Sep 17 00:00:00 2001
+From: Marco Martini <deckedspring@gmail.com>
+Date: Mon, 9 Dec 2024 10:42:56 +0100
+Subject: [PATCH 07/17] Fixed RESTful calls
+
+---
+ .../proxy/modules/vdi_broker/vdi_broker.cpp   | 168 +++++++++---------
+ 1 file changed, 88 insertions(+), 80 deletions(-)
+
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index e266dfa21..e4098ec09 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -26,7 +26,7 @@
+ #include <thread>
+ #include <curl/curl.h>
+ #include <unistd.h>
+-#include <jsoncpp/json/json.h>
++#include <json/json.h>
+ 
+ 
+ #include <freerdp/api.h>
+@@ -49,14 +49,14 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* use
+ }
+ 
+ // Function to get container information via Podman RESTful API
+-std::string get_container_info(const std::string& container_name) {
++std::string get_container_info(const std::string& container_name, const std::string& endpoint = "/json") {
+     CURL* curl;
+     CURLcode res;
+     std::string response;
+ 
+     curl = curl_easy_init();
+     if (curl) {
+-        std::string url = "http://d/v1.0.0/libpod/containers/" + container_name + "/json";
++        std::string url = "http://d/v5.3.0/libpod/containers/" + container_name + endpoint;
+ 
+         curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
+         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+@@ -123,44 +123,40 @@ bool wait_for_weston(const std::string& container_name) {
+ 
+     bool is_weston_active = false;
+     while (!is_weston_active) {
+-        CURL* exec_curl = curl_easy_init();
+-        if (exec_curl) {
+-            std::string exec_url = "http://d/v1.0.0/libpod/containers/" + container_name + "/exec";
+-            std::string exec_command = "{\"Cmd\": [\"systemctl\", \"status\", \"weston\"], \"AttachStdout\": true, \"AttachStderr\": true}";
+-
+-            struct curl_slist* headers = nullptr;
+-            headers = curl_slist_append(headers, "Content-Type: application/json");
+-
+-            curl_easy_setopt(exec_curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
+-            curl_easy_setopt(exec_curl, CURLOPT_URL, exec_url.c_str());
+-            curl_easy_setopt(exec_curl, CURLOPT_HTTPHEADER, headers);
+-            curl_easy_setopt(exec_curl, CURLOPT_POSTFIELDS, exec_command.c_str());
+-
+-            // Capture the response
+-            std::string response;
+-            curl_easy_setopt(exec_curl, CURLOPT_WRITEFUNCTION, [](void* contents, size_t size, size_t nmemb, void* userp) -> size_t {
+-                ((std::string*)userp)->append((char*)contents, size * nmemb);
+-                return size * nmemb;
+-            });
+-            curl_easy_setopt(exec_curl, CURLOPT_WRITEDATA, &response);
+-
+-            // Perform the exec request
+-            CURLcode res = curl_easy_perform(exec_curl);
+-
+-            if (res == CURLE_OK) {
+-                if (response.find("active (running)") != std::string::npos) {
+-                    is_weston_active = true;
+-                    std::clog << "Weston is active (running)." << std::endl;
+-                } else {
+-                    std::clog << "Weston is not active yet, retrying..." << std::endl;
+-                }
+-            } else {
+-                std::cerr << "Failed to execute command in container: " << curl_easy_strerror(res) << std::endl;
+-            }
++    	auto response = get_container_info(container_name, "/top");
++    	//Check if weston is running
++    	auto searchValue = "weston -c /etc/weston/weston.ini";
++
++
++    	// Parse the JSON string
++    	Json::Value root;
++    	Json::CharReaderBuilder builder;
++    	std::string errs;
++
++    	std::istringstream s(response);
++    	if (!Json::parseFromStream(builder, s, &root, &errs)) {
++    		std::cerr << "Error parsing JSON: " << errs << std::endl;
++    		return false;
++    	}
++
++    	// Check if the "Processes" key exists and is an array
++    	if (!root.isMember("Processes") || !root["Processes"].isArray()) {
++    		std::cerr << "Invalid JSON: 'Processes' key is missing or not an array" << std::endl;
++    		return false;
++    	}
++
++    	// Iterate through the "Processes" array
++    	for (const auto &process : root["Processes"]) {
++    		if (!process.isArray()) {
++    			continue; // Ensure each process is an array
++    		}
++
++    		// Check if the last element in the process array matches the searchValue
++    		if (process[process.size() - 1].asString() == searchValue) {
++    			is_weston_active = true;
++    		}
++    	}
+ 
+-            curl_slist_free_all(headers);
+-            curl_easy_cleanup(exec_curl);
+-        }
+ 
+         if (!is_weston_active) {
+             std::this_thread::sleep_for(std::chrono::seconds(2)); // Wait before retrying
+@@ -180,7 +176,7 @@ bool start_container(const std::string& container_name) {
+ 
+ 	curl = curl_easy_init();
+ 	if (curl) {
+-		std::string url = "http://d/v1.0.0/libpod/containers/" + container_name + "/start";
++		std::string url = "http://d/v5.3.0/libpod/containers/" + container_name + "/start";
+ 
+ 		curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
+ 		curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+@@ -247,31 +243,41 @@ bool create_container(const std::string& container_name, const std::string& user
+     CURLcode res;
+     bool success = false;
+     std::clog << "Creating container: " << container_name << std::endl;
+-
+     curl = curl_easy_init();
+     if (curl) {
+-        std::string url = "http://d/v1.0.0/libpod/containers/create";
+-        std::string create_command = "{\"name\": \"" + container_name + "\","
+-                                     "\"hostname\": \"" + container_name + "\","
+-                                     "\"restart_policy\": \"unless-stopped\","
+-                                     "\"env\": [\"XDG_RUNTIME_DIR=/tmp\", \"USERNAME=" + username + "\"],"
+-                                     "\"volumes\": ["
+-                                     "{\"source\": \"/sys/fs/cgroup\", \"destination\": \"/sys/fs/cgroup\", \"options\": [\"ro\"]},"
+-                                     "{\"source\": \"/tmp/dbus\", \"destination\": \"/var/run/dbus\"},"
+-                                     "{\"source\": \"/etc/passwd\", \"destination\": \"/etc/passwd\", \"options\": [\"ro\"]},"
+-                                     "{\"source\": \"/etc/group\", \"destination\": \"/etc/group\", \"options\": [\"ro\"]},"
+-                                     "{\"source\": \"/home/marco\", \"destination\": \"/mnt/home/marco\"},"
+-                                     "{\"source\": \"/etc/weston\", \"destination\": \"/etc/weston\", \"options\": [\"ro\"]}],"
+-                                     "\"cap_add\": [\"SYS_ADMIN\", \"NET_ADMIN\", \"SYS_PTRACE\", \"AUDIT_CONTROL\"],"
+-                                     "\"security_opt\": [\"seccomp=unconfined\", \"label=disable\"],"
+-                                     "\"devices\": ["
+-                                     "{\"path_on_host\": \"/dev/fuse\"},"
+-                                     "{\"path_on_host\": \"/dev/nvidia0\"},"
+-                                     "{\"path_on_host\": \"/dev/nvidiactl\"},"
+-                                     "{\"path_on_host\": \"/dev/nvidia-uvm\"},"
+-                                     "{\"path_on_host\": \"/dev/dri/renderD128\"}],"
+-                                     "\"image\": \"fedora_dev\","
+-                                     "\"command\": [\"/usr/sbin/init\"]}";
++        std::string url = "http://d/v5.3.0/libpod/containers/create";
++    	//Note: Change image: accordingly, TODO: do it dynamically on a config file or something similar
++    	std::string create_command = "{\"name\": \"" + container_name + "\","
++				     "\"hostname\": \"" + container_name + "\","
++    				     R"(
++				     "image": "fedora_dev",
++				     "cap_add": [
++				         "SYS_ADMIN",
++				         "NET_ADMIN",
++				         "SYS_PTRACE",
++				         "AUDIT_CONTROL"
++				     ],
++				     "devices": [
++				         { "path": "/dev/fuse" },
++				         { "path": "/dev/nvidia0" },
++				         { "path": "/dev/nvidiactl" },
++				         { "path": "/dev/nvidia-uvm" },
++				         { "path": "/dev/dri/renderD128" }
++				     ],
++				     "env": {
++				         "XDG_RUNTIME_DIR": "/tmp",
++				         "USERNAME": "marco"
++				     },
++				     "mounts": [
++				         { "Source": "/etc/weston", "Destination": "/etc/weston", "Type": "bind", "ReadOnly": true },
++				         { "Source": "/etc/passwd", "Destination": "/etc/passwd", "Type": "bind", "ReadOnly": true },
++				         { "Source": "/etc/group", "Destination": "/etc/group", "Type": "bind", "ReadOnly": true },
++				         { "Source": "/etc/shadow", "Destination": "/etc/shadow", "Type": "bind", "ReadOnly": true }
++				     ],
++				     "command": ["/usr/sbin/init"]
++				     })";
++
++        std::clog << "Create string: : " << create_command << std::endl;
+ 
+         struct curl_slist* headers = nullptr;
+         headers = curl_slist_append(headers, "Content-Type: application/json");
+@@ -309,15 +315,15 @@ bool create_container(const std::string& container_name, const std::string& user
+ // Main function to manage the container
+ std::string manage_container(const std::string& username, const std::string& container_prefix= "weston-") {
+     if (!container_exists(container_prefix + username)) {
+-        // Create container using compose, suppose we're in the same directory as the compose file
++        // Create container
+     	create_container(container_prefix + username, username);
+-    } else {
+-        if (!container_running(container_prefix + username)) {
+-            // Start the container
+-            if (!start_container(container_prefix + username)) {
+-                std::cerr << "Failed to start the container." << std::endl;
+-                return "";
+-            }
++    }
++
++    if (!container_running(container_prefix + username)) {
++        // Start the container
++        if (!start_container(container_prefix + username)) {
++            std::cerr << "Failed to start the container." << std::endl;
++            return "";
+         }
+     }
+ 
+@@ -408,14 +414,16 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 	auto user = username.substr(0, hashPos);
+ 	WLog_INFO(TAG, "Username: %s", username);
+ 	auto ip = manage_container(user).c_str();
+-	WLog_INFO(TAG, "Setting target address: %s", ip);
+-	freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip);
+-	if(!freerdp_settings_get_string(settings, FreeRDP_Username))
+-		freerdp_settings_set_string(settings, FreeRDP_Username, "None");
+-	if(!freerdp_settings_get_string(settings, FreeRDP_Password))
+-		freerdp_settings_set_string(settings, FreeRDP_Password, "None");
+-	if(!freerdp_settings_get_string(settings, FreeRDP_Domain))
+-		freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
++	if(ip != "") {
++		WLog_INFO(TAG, "Setting target address: %s", ip);
++		freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip);
++		if(!freerdp_settings_get_string(settings, FreeRDP_Username))
++			freerdp_settings_set_string(settings, FreeRDP_Username, "None");
++		if(!freerdp_settings_get_string(settings, FreeRDP_Password))
++			freerdp_settings_set_string(settings, FreeRDP_Password, "None");
++		if(!freerdp_settings_get_string(settings, FreeRDP_Domain))
++			freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
++	}
+ 
+ 	return TRUE;
+ }
+-- 
+2.51.0
+
+
+From dddb6777d5b07eb24fca208cb45e7b0dc8d992c9 Mon Sep 17 00:00:00 2001
+From: Marco Martini <deckedspring@gmail.com>
+Date: Mon, 9 Dec 2024 14:20:15 +0000
+Subject: [PATCH 08/17] Fixed Container start
+
+---
+ server/proxy/modules/vdi_broker/vdi_broker.cpp | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index e4098ec09..360750482 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -177,10 +177,15 @@ bool start_container(const std::string& container_name) {
+ 	curl = curl_easy_init();
+ 	if (curl) {
+ 		std::string url = "http://d/v5.3.0/libpod/containers/" + container_name + "/start";
++		std::string start_command = R"({"name": ")" + container_name + R"("})";
++
++		struct curl_slist* headers = nullptr;
++		headers = curl_slist_append(headers, "Content-Type: application/json");
+ 
+ 		curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
+ 		curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+-		curl_easy_setopt(curl, CURLOPT_POST, 1L);
++		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
++		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, start_command.c_str());
+ 
+ 		// Perform the request to start the container
+ 		res = curl_easy_perform(curl);
+@@ -199,6 +204,7 @@ bool start_container(const std::string& container_name) {
+ 			std::cerr << "Failed to start container: " << curl_easy_strerror(res) << std::endl;
+ 		}
+ 
++		curl_slist_free_all(headers);
+ 		curl_easy_cleanup(curl);
+ 	}
+ 	return success;
+@@ -265,14 +271,14 @@ bool create_container(const std::string& container_name, const std::string& user
+ 				         { "path": "/dev/dri/renderD128" }
+ 				     ],
+ 				     "env": {
+-				         "XDG_RUNTIME_DIR": "/tmp",
+-				         "USERNAME": "marco"
++				         "XDG_RUNTIME_DIR": "/tmp"
+ 				     },
+ 				     "mounts": [
+ 				         { "Source": "/etc/weston", "Destination": "/etc/weston", "Type": "bind", "ReadOnly": true },
+ 				         { "Source": "/etc/passwd", "Destination": "/etc/passwd", "Type": "bind", "ReadOnly": true },
+ 				         { "Source": "/etc/group", "Destination": "/etc/group", "Type": "bind", "ReadOnly": true },
+-				         { "Source": "/etc/shadow", "Destination": "/etc/shadow", "Type": "bind", "ReadOnly": true }
++				         { "Source": "/etc/shadow", "Destination": "/etc/shadow", "Type": "bind", "ReadOnly": true },
++				         { "Source": "/home", "Destination": "/home", "Type": "bind" }
+ 				     ],
+ 				     "command": ["/usr/sbin/init"]
+ 				     })";
+-- 
+2.51.0
+
+
+From 4101689f6839264bdae34e90a4a284dd36bb9505 Mon Sep 17 00:00:00 2001
+From: Marco Martini <deckedspring@gmail.com>
+Date: Mon, 16 Dec 2024 21:12:00 +0000
+Subject: [PATCH 09/17] Switch from weston to gnome compositor
+
+---
+ .../proxy/modules/vdi_broker/vdi_broker.cpp   | 53 ++++++++++---------
+ 1 file changed, 28 insertions(+), 25 deletions(-)
+
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index 360750482..ff7b9e191 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -35,6 +35,8 @@
+ #include <sys/time.h>
+ 
+ #define TAG MODULE_TAG("vdi_broker")
++#define PODMAN_IMAGE "vdi-gnome"
++#define CONTAINER_PREFIX "vdi-"
+ 
+ /* Container Management Part */
+ 
+@@ -83,7 +85,7 @@ std::string get_container_info(const std::string& container_name, const std::str
+             response.clear();
+         }
+ 
+-    	std::clog << "Get Container info - http code: " << http_code << std::endl << "Response: " << res << std::endl; 
++    	//std::clog << "Get Container info - http code: " << http_code << std::endl << "Response: " << res << std::endl; 
+ 
+         curl_easy_cleanup(curl);
+     }
+@@ -114,18 +116,19 @@ bool container_running(const std::string& container_name) {
+     }
+ 
+     std::string status = root["State"]["Status"].asString();
+-    std::clog << "Container status:" << status << std::endl;
++    //std::clog << "Container status:" << status << std::endl;
+     return status == "running";
+ }
+ 
+-bool wait_for_weston(const std::string& container_name) {
+-    std::clog << "Waiting for weston to be active in container: " << container_name << std::endl;
++bool wait_for_compositor(const std::string& container_name) {
++    std::clog << "Waiting for compositor to be active in container: " << container_name << std::endl;
+ 
+-    bool is_weston_active = false;
+-    while (!is_weston_active) {
++    bool is_compositor_active = false;
++    int count = 0;
++    while (!is_compositor_active && count < 10) {
+     	auto response = get_container_info(container_name, "/top");
+-    	//Check if weston is running
+-    	auto searchValue = "weston -c /etc/weston/weston.ini";
++    	//Check if compositor is running (hard coded string)
++    	auto searchValue = "/usr/bin/gnome-shell --headless";
+ 
+ 
+     	// Parse the JSON string
+@@ -153,17 +156,19 @@ bool wait_for_weston(const std::string& container_name) {
+ 
+     		// Check if the last element in the process array matches the searchValue
+     		if (process[process.size() - 1].asString() == searchValue) {
+-    			is_weston_active = true;
++    			is_compositor_active = true;
+     		}
+     	}
+ 
+ 
+-        if (!is_weston_active) {
++        if (!is_compositor_active) {
+             std::this_thread::sleep_for(std::chrono::seconds(2)); // Wait before retrying
+         }
++	count++;
+     }
+ 
+-    return is_weston_active;
++    std::this_thread::sleep_for(std::chrono::seconds(2)); // Wait before returning true 
++    return is_compositor_active;
+ }
+ 
+ 
+@@ -256,7 +261,7 @@ bool create_container(const std::string& container_name, const std::string& user
+     	std::string create_command = "{\"name\": \"" + container_name + "\","
+ 				     "\"hostname\": \"" + container_name + "\","
+     				     R"(
+-				     "image": "fedora_dev",
++				     "image": ")" + PODMAN_IMAGE + R"(",
+ 				     "cap_add": [
+ 				         "SYS_ADMIN",
+ 				         "NET_ADMIN",
+@@ -274,7 +279,7 @@ bool create_container(const std::string& container_name, const std::string& user
+ 				         "XDG_RUNTIME_DIR": "/tmp"
+ 				     },
+ 				     "mounts": [
+-				         { "Source": "/etc/weston", "Destination": "/etc/weston", "Type": "bind", "ReadOnly": true },
++				         { "Source": "/etc/vdi", "Destination": "/etc/vdi", "Type": "bind", "ReadOnly": true },
+ 				         { "Source": "/etc/passwd", "Destination": "/etc/passwd", "Type": "bind", "ReadOnly": true },
+ 				         { "Source": "/etc/group", "Destination": "/etc/group", "Type": "bind", "ReadOnly": true },
+ 				         { "Source": "/etc/shadow", "Destination": "/etc/shadow", "Type": "bind", "ReadOnly": true },
+@@ -319,7 +324,7 @@ bool create_container(const std::string& container_name, const std::string& user
+ 
+ 
+ // Main function to manage the container
+-std::string manage_container(const std::string& username, const std::string& container_prefix= "weston-") {
++std::string manage_container(const std::string& username, const std::string& container_prefix= CONTAINER_PREFIX) {
+     if (!container_exists(container_prefix + username)) {
+         // Create container
+     	create_container(container_prefix + username, username);
+@@ -334,7 +339,7 @@ std::string manage_container(const std::string& username, const std::string& con
+     }
+ 
+     // Wait for weston to be up
+-    wait_for_weston(container_prefix + username);
++    wait_for_compositor(container_prefix + username);
+ 
+     // Get the container's IP address
+     std::string ip = get_container_ip(container_prefix + username);
+@@ -396,11 +401,11 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+         //Set target to another thing
+ 	auto settings = pdata->pc->context.settings;
+ 	std::string username = freerdp_settings_get_string(settings, FreeRDP_Username);
+-	WLog_INFO(TAG, "Username full: %s", username);
++	WLog_INFO(TAG, "Username full: %s", username.c_str());
+ 
+ 
+ 	//Set Default Codec
+-	freerdp_settings_set_bool(settings, FreeRDP_NSCodec, true);
++	//freerdp_settings_set_bool(settings, FreeRDP_NSCodec, true);
+ 	// Otherwise find the position of '#', then set RFX if found
+ 	auto hashPos = username.find('#');
+ 
+@@ -415,20 +420,18 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 			}
+ 		}
+ 	}
+-	WLog_INFO(TAG, "USING CODEC NSC");
++	//WLog_INFO(TAG, "USING CODEC NSC");
+ 
+ 	auto user = username.substr(0, hashPos);
+-	WLog_INFO(TAG, "Username: %s", username);
++	WLog_INFO(TAG, "Username: %s", username.c_str());
+ 	auto ip = manage_container(user).c_str();
+ 	if(ip != "") {
+ 		WLog_INFO(TAG, "Setting target address: %s", ip);
++		//Hardcoded password for now, set the same for grd in container
+ 		freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip);
+-		if(!freerdp_settings_get_string(settings, FreeRDP_Username))
+-			freerdp_settings_set_string(settings, FreeRDP_Username, "None");
+-		if(!freerdp_settings_get_string(settings, FreeRDP_Password))
+-			freerdp_settings_set_string(settings, FreeRDP_Password, "None");
+-		if(!freerdp_settings_get_string(settings, FreeRDP_Domain))
+-			freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
++		freerdp_settings_set_string(settings, FreeRDP_Username, "rdp");
++		freerdp_settings_set_string(settings, FreeRDP_Password, "rdp");
++		freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
+ 	}
+ 
+ 	return TRUE;
+-- 
+2.51.0
+
+
+From 366e03bd0f9cdd268714c9b53b5760630d38f024 Mon Sep 17 00:00:00 2001
+From: Marco Martini <deckedspring@gmail.com>
+Date: Mon, 16 Dec 2024 21:25:20 +0000
+Subject: [PATCH 10/17] Add workaround for GTK Vulkan renderer
+
+---
+ server/proxy/modules/vdi_broker/vdi_broker.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index ff7b9e191..c1ca97725 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -276,7 +276,8 @@ bool create_container(const std::string& container_name, const std::string& user
+ 				         { "path": "/dev/dri/renderD128" }
+ 				     ],
+ 				     "env": {
+-				         "XDG_RUNTIME_DIR": "/tmp"
++				         "XDG_RUNTIME_DIR": "/tmp",
++				         "GSK_RENDERER": "ngl"
+ 				     },
+ 				     "mounts": [
+ 				         { "Source": "/etc/vdi", "Destination": "/etc/vdi", "Type": "bind", "ReadOnly": true },
+-- 
+2.51.0
+
+
+From 0c0179d4f5ec0f8ac9667b188032b57beb632300 Mon Sep 17 00:00:00 2001
+From: Marco Martini <deckedspring@gmail.com>
+Date: Tue, 17 Dec 2024 10:11:55 +0000
+Subject: [PATCH 11/17] Add initial PAM authentication
+
+---
+ .../proxy/modules/vdi_broker/CMakeLists.txt   |   8 +-
+ .../proxy/modules/vdi_broker/vdi_broker.cpp   | 139 +++++++++++++++++-
+ 2 files changed, 141 insertions(+), 6 deletions(-)
+
+diff --git a/server/proxy/modules/vdi_broker/CMakeLists.txt b/server/proxy/modules/vdi_broker/CMakeLists.txt
+index e8e9f26b8..d0aaa57e0 100644
+--- a/server/proxy/modules/vdi_broker/CMakeLists.txt
++++ b/server/proxy/modules/vdi_broker/CMakeLists.txt
+@@ -43,6 +43,12 @@ find_package(PkgConfig REQUIRED)
+ pkg_check_modules(JSONCPP jsoncpp)
+ link_libraries(${JSONCPP_LIBRARIES})
+ 
++# Find PAM libraries using pkg-config
++pkg_check_modules(PAM REQUIRED pam pam_misc)
++if(NOT PAM_FOUND)
++    message(FATAL_ERROR "PAM libraries (libpam and libpam_misc) not found")
++endif()
++
+ message("project ${PROJECT_NAME} is using version ${PROJECT_VERSION}")
+ 
+ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../../../cmake/)
+@@ -57,6 +63,6 @@ set(SRCS
+ )
+ AddTargetWithResourceFile(${PROJECT_NAME} FALSE "${PROJECT_VERSION}" SRCS FALSE)
+ 
+-target_link_libraries(${PROJECT_NAME} winpr CURL::libcurl ${JSONCPP_LIBRARIES})
++target_link_libraries(${PROJECT_NAME} winpr CURL::libcurl ${JSONCPP_LIBRARIES} ${PAM_LIBRARIES})
+ 
+ install(TARGETS ${PROJECT_NAME} DESTINATION ${FREERDP_PROXY_PLUGINDIR})
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index c1ca97725..464ea9833 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -27,7 +27,8 @@
+ #include <curl/curl.h>
+ #include <unistd.h>
+ #include <json/json.h>
+-
++#include <security/pam_appl.h>
++#include <security/pam_misc.h>
+ 
+ #include <freerdp/api.h>
+ #include <freerdp/scancode.h>
+@@ -38,6 +39,18 @@
+ #define PODMAN_IMAGE "vdi-gnome"
+ #define CONTAINER_PREFIX "vdi-"
+ 
++
++// Set Nla Security to login
++static BOOL vdi_server_session_started(proxyPlugin* plugin, proxyData* pdata, void* custom) {
++	auto settings = pdata->ps->context.settings;
++	freerdp_settings_set_bool (settings, FreeRDP_RdpSecurity, FALSE);
++	freerdp_settings_set_bool (settings, FreeRDP_TlsSecurity, TRUE);
++	freerdp_settings_set_bool (settings, FreeRDP_NlaSecurity, TRUE);
++	freerdp_settings_set_bool (settings, FreeRDP_RdstlsSecurity, TRUE);
++	return TRUE;
++}
++
++
+ /* Container Management Part */
+ 
+ 
+@@ -377,6 +390,12 @@ static BOOL demo_client_init_connect(proxyPlugin* plugin, proxyData* pdata, void
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+ 	WINPR_ASSERT(custom);
++	auto settings = pdata->pc->context.settings;
++
++	freerdp_settings_set_bool (settings, FreeRDP_RdpSecurity, FALSE);
++	freerdp_settings_set_bool (settings, FreeRDP_TlsSecurity, FALSE);
++	freerdp_settings_set_bool (settings, FreeRDP_NlaSecurity, TRUE);
++
+ 
+ 	WLog_INFO(TAG, "called");
+ 	return TRUE;
+@@ -392,6 +411,103 @@ static BOOL demo_client_uninit_connect(proxyPlugin* plugin, proxyData* pdata, vo
+ 	return TRUE;
+ }
+ 
++// Structure to hold the password
++struct pam_conv_data {
++    const char* password;
++};
++
++
++// PAM conversation function
++static int pam_conversation(int num_msg, const struct pam_message** msg,
++                            struct pam_response** resp, void* appdata_ptr) {
++    if (num_msg <= 0) {
++        return PAM_CONV_ERR;
++    }
++
++    pam_conv_data* conv_data = static_cast<pam_conv_data*>(appdata_ptr);
++    struct pam_response* responses = (struct pam_response*)calloc(num_msg, sizeof(struct pam_response));
++    if (responses == nullptr) {
++        return PAM_CONV_ERR;
++    }
++
++    for (int i = 0; i < num_msg; ++i) {
++        switch (msg[i]->msg_style) {
++            case PAM_PROMPT_ECHO_OFF:
++                // Provide the password
++                responses[i].resp = strdup(conv_data->password);
++                responses[i].resp_retcode = 0;
++                break;
++            case PAM_PROMPT_ECHO_ON:
++                // Handle cases where echo is allowed (not used here)
++                responses[i].resp = nullptr;
++                responses[i].resp_retcode = 0;
++                break;
++            case PAM_ERROR_MSG:
++                std::cerr << "PAM Error Message: " << msg[i]->msg << std::endl;
++                responses[i].resp = nullptr;
++                responses[i].resp_retcode = 0;
++                break;
++            case PAM_TEXT_INFO:
++                std::cout << "PAM Info: " << msg[i]->msg << std::endl;
++                responses[i].resp = nullptr;
++                responses[i].resp_retcode = 0;
++                break;
++            default:
++                free(responses);
++                return PAM_CONV_ERR;
++        }
++    }
++
++    *resp = responses;
++    return PAM_SUCCESS;
++}
++
++
++
++
++// Function to authenticate user via PAM
++bool vdi_auth(const std::string& username, const std::string& password) {
++    WLog_INFO(TAG, "called, password: %s", password.c_str());
++    pam_handle_t* pamh = nullptr;
++    struct pam_conv conv;
++    pam_conv_data conv_data = { password.c_str() };
++
++    conv.conv = pam_conversation;
++    conv.appdata_ptr = &conv_data;
++
++    // Start PAM transaction
++    int retval = pam_start("login", username.c_str(), &conv, &pamh);
++    if (retval != PAM_SUCCESS) {
++        std::cerr << "pam_start failed: " << pam_strerror(pamh, retval) << std::endl;
++        return false;
++    }
++
++    // Authenticate the user
++    retval = pam_authenticate(pamh, 0);
++    if (retval != PAM_SUCCESS) {
++        std::cerr << "pam_authenticate failed: " << pam_strerror(pamh, retval) << std::endl;
++        pam_end(pamh, retval);
++        return false;
++    }
++
++    // Check account status
++    retval = pam_acct_mgmt(pamh, 0);
++    if (retval != PAM_SUCCESS) {
++        std::cerr << "pam_acct_mgmt failed: " << pam_strerror(pamh, retval) << std::endl;
++        pam_end(pamh, retval);
++        return false;
++    }
++
++    // End PAM transaction
++    retval = pam_end(pamh, PAM_SUCCESS);
++    if (retval != PAM_SUCCESS) {
++        std::cerr << "pam_end failed: " << pam_strerror(pamh, retval) << std::endl;
++        return false;
++    }
++
++    return true;
++}
++
+ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+@@ -401,9 +517,18 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 
+         //Set target to another thing
+ 	auto settings = pdata->pc->context.settings;
+-	std::string username = freerdp_settings_get_string(settings, FreeRDP_Username);
+-	WLog_INFO(TAG, "Username full: %s", username.c_str());
++	const char* uname = freerdp_settings_get_string(settings, FreeRDP_Username);
++	const char* passw = freerdp_settings_get_string(settings, FreeRDP_Password);
++
++	if(uname == nullptr)
++		return FALSE;
++	if(passw == nullptr)
++		return FALSE;
+ 
++	std::string username = uname;
++	std::string password = passw;
++
++	WLog_INFO(TAG, "Username full: %s", username.c_str());
+ 
+ 	//Set Default Codec
+ 	//freerdp_settings_set_bool(settings, FreeRDP_NSCodec, true);
+@@ -421,8 +546,11 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 			}
+ 		}
+ 	}
+-	//WLog_INFO(TAG, "USING CODEC NSC");
+ 
++	//WLog_INFO(TAG, "USING CODEC NSC");
++	if(!vdi_auth(username, password)) {
++		return FALSE;
++	}
+ 	auto user = username.substr(0, hashPos);
+ 	WLog_INFO(TAG, "Username: %s", username.c_str());
+ 	auto ip = manage_container(user).c_str();
+@@ -772,9 +900,10 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
+ 	plugin.name = plugin_name;
+ 	plugin.description = plugin_desc;
+ 	plugin.PluginUnload = demo_plugin_unload;
+-	//plugin.ClientInitConnect = demo_client_init_connect;
++	plugin.ClientInitConnect = demo_client_init_connect;
+ 	//plugin.ClientUninitConnect = demo_client_uninit_connect;
+ 	plugin.ClientPreConnect = demo_client_pre_connect;
++	plugin.ServerSessionStarted = vdi_server_session_started;
+ 	//plugin.ClientPostConnect = demo_client_post_connect;
+ 	//plugin.ClientPostDisconnect = demo_client_post_disconnect;
+ 	//plugin.ClientX509Certificate = demo_client_x509_certificate;
+-- 
+2.51.0
+
+
+From 522b432a9c8b67f6b5012565ea37b0a6d74f734d Mon Sep 17 00:00:00 2001
+From: Marco Martini <deckedspring@gmail.com>
+Date: Thu, 19 Dec 2024 16:10:06 +0100
+Subject: [PATCH 12/17] Added Kerberos Auth, minor fixes
+
+To use Kerberos, we must create /etc/pam.d/vdi-broker with pam_krb5.so module
+---
+ server/proxy/modules/vdi_broker/vdi_broker.cpp | 17 +++++++++--------
+ 1 file changed, 9 insertions(+), 8 deletions(-)
+
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index 464ea9833..a9d47ae45 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -133,15 +133,15 @@ bool container_running(const std::string& container_name) {
+     return status == "running";
+ }
+ 
+-bool wait_for_compositor(const std::string& container_name) {
+-    std::clog << "Waiting for compositor to be active in container: " << container_name << std::endl;
++bool wait_for_process(const std::string& container_name, const std::string& process_name) {
++    std::clog << "Waiting for <" << process_name  << "> to be active in container: " << container_name << std::endl;
+ 
+     bool is_compositor_active = false;
+     int count = 0;
+     while (!is_compositor_active && count < 10) {
+     	auto response = get_container_info(container_name, "/top");
+     	//Check if compositor is running (hard coded string)
+-    	auto searchValue = "/usr/bin/gnome-shell --headless";
++    	auto searchValue = process_name;
+ 
+ 
+     	// Parse the JSON string
+@@ -353,7 +353,8 @@ std::string manage_container(const std::string& username, const std::string& con
+     }
+ 
+     // Wait for weston to be up
+-    wait_for_compositor(container_prefix + username);
++    wait_for_process(container_prefix + username, "/usr/libexec/gnome-remote-desktop-daemon --headless");
++    wait_for_process(container_prefix + username, "/usr/bin/gnome-shell --headless");
+ 
+     // Get the container's IP address
+     std::string ip = get_container_ip(container_prefix + username);
+@@ -467,7 +468,6 @@ static int pam_conversation(int num_msg, const struct pam_message** msg,
+ 
+ // Function to authenticate user via PAM
+ bool vdi_auth(const std::string& username, const std::string& password) {
+-    WLog_INFO(TAG, "called, password: %s", password.c_str());
+     pam_handle_t* pamh = nullptr;
+     struct pam_conv conv;
+     pam_conv_data conv_data = { password.c_str() };
+@@ -476,7 +476,7 @@ bool vdi_auth(const std::string& username, const std::string& password) {
+     conv.appdata_ptr = &conv_data;
+ 
+     // Start PAM transaction
+-    int retval = pam_start("login", username.c_str(), &conv, &pamh);
++    int retval = pam_start("vdi-broker", username.c_str(), &conv, &pamh);
+     if (retval != PAM_SUCCESS) {
+         std::cerr << "pam_start failed: " << pam_strerror(pamh, retval) << std::endl;
+         return false;
+@@ -547,11 +547,12 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 		}
+ 	}
+ 
++	auto user = username.substr(0, hashPos);
++
+ 	//WLog_INFO(TAG, "USING CODEC NSC");
+-	if(!vdi_auth(username, password)) {
++	if(!vdi_auth(user, password)) {
+ 		return FALSE;
+ 	}
+-	auto user = username.substr(0, hashPos);
+ 	WLog_INFO(TAG, "Username: %s", username.c_str());
+ 	auto ip = manage_container(user).c_str();
+ 	if(ip != "") {
+-- 
+2.51.0
+
+
+From e76938f2e440958b06cd9f0461f2ebeee11efcf7 Mon Sep 17 00:00:00 2001
+From: Marco Martini <deckedspring@gmail.com>
+Date: Wed, 29 Jan 2025 16:55:46 +0100
+Subject: [PATCH 13/17] Update vdi_broker.cpp
+
+Modify process wait logic
+---
+ server/proxy/modules/vdi_broker/vdi_broker.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index a9d47ae45..c8561ad8a 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -353,8 +353,8 @@ std::string manage_container(const std::string& username, const std::string& con
+     }
+ 
+     // Wait for weston to be up
++    wait_for_process(container_prefix + username, "/usr/bin/gnome-shell");
+     wait_for_process(container_prefix + username, "/usr/libexec/gnome-remote-desktop-daemon --headless");
+-    wait_for_process(container_prefix + username, "/usr/bin/gnome-shell --headless");
+ 
+     // Get the container's IP address
+     std::string ip = get_container_ip(container_prefix + username);
+-- 
+2.51.0
+
+
+From 8583193afd370de6bcb09ad9964da171853be5a8 Mon Sep 17 00:00:00 2001
+From: Marco Martini <marco.martini.7@studenti.unipd.it>
+Date: Tue, 23 Sep 2025 17:49:01 +0200
+Subject: [PATCH 14/17] =?UTF-8?q?Added=20startup/config-change=20logging?=
+ =?UTF-8?q?=20so=20the=20plugin=20immediately=20prints=20the=20active=20Po?=
+ =?UTF-8?q?dman=20image,=20mount=20paths,=20PAM=20stack,=20and=20Dockerfil?=
+ =?UTF-8?q?e=20setting,=20with=20safe=20refresh=20handling=20on=20each=20p?=
+ =?UTF-8?q?ath=20update=20Introduced=20VdiBrokerConfig::DockerfilePath=20p?=
+ =?UTF-8?q?lus=20parsing/default=20wiring=20to=20keep=20the=20singleton=20?=
+ =?UTF-8?q?aware=20of=20all=20mount=20paths=20and=20optional=20image-build?=
+ =?UTF-8?q?=20inputs=20Split=20container=20orchestration=20into=20the=20ne?=
+ =?UTF-8?q?w=20manager=20and=20taught=20it=20to=20rebuild=20missing=20imag?=
+ =?UTF-8?q?es=20via=20podman=20build=20when=20a=20dockerfile=5Fpath=20is?=
+ =?UTF-8?q?=20provided;=20container=20creation=20now=20falls=20back=20auto?=
+ =?UTF-8?q?matically=20before=20retrying=20Dropped=20the=20old=20=E2=80=9C?=
+ =?UTF-8?q?demo=E2=80=9D=20naming=20and=20ensured=20the=20VDI=20branding?=
+ =?UTF-8?q?=20is=20consistent=20across=20plugin=20callbacks=20Supplied=20a?=
+ =?UTF-8?q?=20ready-to-copy=20sample=20config=20that=20documents=20the=20n?=
+ =?UTF-8?q?ew=20Dockerfile=20option=20alongside=20existing=20mount=20and?=
+ =?UTF-8?q?=20PAM=20settings?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../proxy/modules/vdi_broker/CMakeLists.txt   |   1 +
+ .../proxy/modules/vdi_broker/vdi_broker.cpp   | 535 ++++---------
+ .../modules/vdi_broker/vdi_broker.sample.yaml |  20 +
+ .../vdi_broker/vdi_container_manager.cpp      | 722 ++++++++++++++++++
+ .../vdi_broker/vdi_container_manager.h        |  63 ++
+ 5 files changed, 960 insertions(+), 381 deletions(-)
+ create mode 100644 server/proxy/modules/vdi_broker/vdi_broker.sample.yaml
+ create mode 100644 server/proxy/modules/vdi_broker/vdi_container_manager.cpp
+ create mode 100644 server/proxy/modules/vdi_broker/vdi_container_manager.h
+
+diff --git a/server/proxy/modules/vdi_broker/CMakeLists.txt b/server/proxy/modules/vdi_broker/CMakeLists.txt
+index d0aaa57e0..abe73ce40 100644
+--- a/server/proxy/modules/vdi_broker/CMakeLists.txt
++++ b/server/proxy/modules/vdi_broker/CMakeLists.txt
+@@ -60,6 +60,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ 
+ set(SRCS
+ 	vdi_broker.cpp
++	vdi_container_manager.cpp
+ )
+ AddTargetWithResourceFile(${PROJECT_NAME} FALSE "${PROJECT_VERSION}" SRCS FALSE)
+ 
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index c8561ad8a..518124d78 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -23,21 +23,24 @@
+ 
+ #include <iostream>
+ #include <string>
+-#include <thread>
+-#include <curl/curl.h>
+ #include <unistd.h>
+-#include <json/json.h>
+ #include <security/pam_appl.h>
+ #include <security/pam_misc.h>
+ 
+ #include <freerdp/api.h>
+ #include <freerdp/scancode.h>
++#include <freerdp/server/proxy/proxy_config.h>
+ #include <freerdp/server/proxy/proxy_modules_api.h>
+ #include <sys/time.h>
+ 
++#include "vdi_container_manager.h"
++
+ #define TAG MODULE_TAG("vdi_broker")
+-#define PODMAN_IMAGE "vdi-gnome"
+-#define CONTAINER_PREFIX "vdi-"
++static constexpr char plugin_name[] = "vdi-broker";
++static constexpr char plugin_desc[] =
++    "Intercepts RDP Authentication and forwards the connection to an RDP Enabled Container";
++static constexpr char kConfigPathKey[] = "config_path";
++static constexpr char kDefaultPamServiceName[] = "vdi-broker";
+ 
+ 
+ // Set Nla Security to login
+@@ -50,343 +53,98 @@ static BOOL vdi_server_session_started(proxyPlugin* plugin, proxyData* pdata, vo
+ 	return TRUE;
+ }
+ 
++static void vdi_refresh_configuration(proxyData* pdata)
++{
++	auto& configuration = vdi::Config();
+ 
+-/* Container Management Part */
+-
+-
+-// Path to the Podman UNIX socket
+-const char* PODMAN_SOCKET = "/var/run/podman/podman.sock";
+-
+-// Callback function to capture CURL response data
+-static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+-    ((std::string*)userp)->append((char*)contents, size * nmemb);
+-    return size * nmemb;
+-}
+-
+-// Function to get container information via Podman RESTful API
+-std::string get_container_info(const std::string& container_name, const std::string& endpoint = "/json") {
+-    CURL* curl;
+-    CURLcode res;
+-    std::string response;
+-
+-    curl = curl_easy_init();
+-    if (curl) {
+-        std::string url = "http://d/v5.3.0/libpod/containers/" + container_name + endpoint;
+-
+-        curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
+-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+-
+-        // Set up the write callback to capture response data
+-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+-
+-        // Perform the request
+-        res = curl_easy_perform(curl);
+-
+-        if (res != CURLE_OK) {
+-            std::cerr << "Failed to get container info: " << curl_easy_strerror(res) << std::endl;
+-            response.clear();
+-        }
+-
+-        long http_code = 0;
+-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+-
+-        if (http_code == 404) {
+-            response.clear(); // Container does not exist
+-        } else if (http_code >= 400) {
+-            std::cerr << "HTTP error code: " << http_code << std::endl;
+-            response.clear();
+-        }
+-
+-    	//std::clog << "Get Container info - http code: " << http_code << std::endl << "Response: " << res << std::endl; 
+-
+-        curl_easy_cleanup(curl);
+-    }
+-    return response;
+-}
+-
+-// Check if the container exists
+-bool container_exists(const std::string& container_name) {
+-    std::string info = get_container_info(container_name);
+-    if(info.empty()){
+-	    std::clog << "Container doesn't exist: Create it" << std::endl;
+-    }
+-    return !info.empty();
+-}
+-
+-// Check if the container is running
+-bool container_running(const std::string& container_name) {
+-    std::string info = get_container_info(container_name);
+-    if (info.empty()) {
+-        return false;
+-    }
+-
+-    Json::Value root;
+-    Json::Reader reader;
+-    if (!reader.parse(info, root)) {
+-        std::cerr << "Failed to parse container JSON info." << std::endl;
+-        return false;
+-    }
+-
+-    std::string status = root["State"]["Status"].asString();
+-    //std::clog << "Container status:" << status << std::endl;
+-    return status == "running";
+-}
+-
+-bool wait_for_process(const std::string& container_name, const std::string& process_name) {
+-    std::clog << "Waiting for <" << process_name  << "> to be active in container: " << container_name << std::endl;
+-
+-    bool is_compositor_active = false;
+-    int count = 0;
+-    while (!is_compositor_active && count < 10) {
+-    	auto response = get_container_info(container_name, "/top");
+-    	//Check if compositor is running (hard coded string)
+-    	auto searchValue = process_name;
+-
+-
+-    	// Parse the JSON string
+-    	Json::Value root;
+-    	Json::CharReaderBuilder builder;
+-    	std::string errs;
+-
+-    	std::istringstream s(response);
+-    	if (!Json::parseFromStream(builder, s, &root, &errs)) {
+-    		std::cerr << "Error parsing JSON: " << errs << std::endl;
+-    		return false;
+-    	}
+-
+-    	// Check if the "Processes" key exists and is an array
+-    	if (!root.isMember("Processes") || !root["Processes"].isArray()) {
+-    		std::cerr << "Invalid JSON: 'Processes' key is missing or not an array" << std::endl;
+-    		return false;
+-    	}
+-
+-    	// Iterate through the "Processes" array
+-    	for (const auto &process : root["Processes"]) {
+-    		if (!process.isArray()) {
+-    			continue; // Ensure each process is an array
+-    		}
+-
+-    		// Check if the last element in the process array matches the searchValue
+-    		if (process[process.size() - 1].asString() == searchValue) {
+-    			is_compositor_active = true;
+-    		}
+-    	}
+-
+-
+-        if (!is_compositor_active) {
+-            std::this_thread::sleep_for(std::chrono::seconds(2)); // Wait before retrying
+-        }
+-	count++;
+-    }
+-
+-    std::this_thread::sleep_for(std::chrono::seconds(2)); // Wait before returning true 
+-    return is_compositor_active;
+-}
+-
+-
+-// Start the container using Podman RESTful API
+-bool start_container(const std::string& container_name) {
+-	CURL* curl;
+-	CURLcode res;
+-	bool success = false;
+-	std::clog << "Starting container: " << container_name << std::endl;
+-
+-	curl = curl_easy_init();
+-	if (curl) {
+-		std::string url = "http://d/v5.3.0/libpod/containers/" + container_name + "/start";
+-		std::string start_command = R"({"name": ")" + container_name + R"("})";
+-
+-		struct curl_slist* headers = nullptr;
+-		headers = curl_slist_append(headers, "Content-Type: application/json");
+-
+-		curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
+-		curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+-		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+-		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, start_command.c_str());
+-
+-		// Perform the request to start the container
+-		res = curl_easy_perform(curl);
+-
+-		if (res == CURLE_OK) {
+-			long http_code = 0;
+-			curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+-
+-			if (http_code >= 200 && http_code < 300) {
+-				success = true;
+-				std::clog << "Container started successfully." << std::endl;
+-			} else {
+-				std::cerr << "Failed to start container, HTTP code: " << http_code << std::endl;
+-			}
+-		} else {
+-			std::cerr << "Failed to start container: " << curl_easy_strerror(res) << std::endl;
++	if (pdata && pdata->config)
++	{
++		const char* path = pf_config_get(pdata->config, plugin_name, kConfigPathKey);
++		if (path && *path)
++		{
++			const std::string currentPath = configuration.ConfigPath();
++			const bool changed = currentPath != path;
++			configuration.SetConfigPath(path);
++			const bool refreshed = configuration.Refresh();
++			if (!refreshed)
++				WLog_WARN(TAG, "Failed to refresh VDI broker configuration at %s", path);
++			else if (changed)
++				vdi_log_configuration_state(refreshed);
++			return;
+ 		}
+-
+-		curl_slist_free_all(headers);
+-		curl_easy_cleanup(curl);
+ 	}
+-	return success;
+-}
+-
+-
+-// Get the container's IP address
+-std::string get_container_ip(const std::string& container_name) {
+-    std::string info = get_container_info(container_name);
+-    if (info.empty()) {
+-        return "";
+-    }
+-
+-    Json::Value root;
+-    Json::Reader reader;
+-    if (!reader.parse(info, root)) {
+-        std::cerr << "Failed to parse container JSON info." << std::endl;
+-        return "";
+-    }
+-
+-    //Note this only works with podman default network
+-    const Json::Value& networks = root["NetworkSettings"]["Networks"];
+-    if (!networks.isObject()) {
+-        std::cerr << "No network information available." << std::endl;
+-        return "";
+-    }
+ 
+-    for (const auto& network_name : networks.getMemberNames()) {
+-        const Json::Value& network = networks[network_name];
+-        std::string ip = network["IPAddress"].asString();
+-        if (!ip.empty()) {
+-	    std::clog << "Found IP: " << ip << std::endl;
+-            return ip;
+-        }
+-    }
+-    return "";
+-}
+-
+-
+-bool create_container(const std::string& container_name, const std::string& username) {
+-    CURL* curl;
+-    CURLcode res;
+-    bool success = false;
+-    std::clog << "Creating container: " << container_name << std::endl;
+-    curl = curl_easy_init();
+-    if (curl) {
+-        std::string url = "http://d/v5.3.0/libpod/containers/create";
+-    	//Note: Change image: accordingly, TODO: do it dynamically on a config file or something similar
+-    	std::string create_command = "{\"name\": \"" + container_name + "\","
+-				     "\"hostname\": \"" + container_name + "\","
+-    				     R"(
+-				     "image": ")" + PODMAN_IMAGE + R"(",
+-				     "cap_add": [
+-				         "SYS_ADMIN",
+-				         "NET_ADMIN",
+-				         "SYS_PTRACE",
+-				         "AUDIT_CONTROL"
+-				     ],
+-				     "devices": [
+-				         { "path": "/dev/fuse" },
+-				         { "path": "/dev/nvidia0" },
+-				         { "path": "/dev/nvidiactl" },
+-				         { "path": "/dev/nvidia-uvm" },
+-				         { "path": "/dev/dri/renderD128" }
+-				     ],
+-				     "env": {
+-				         "XDG_RUNTIME_DIR": "/tmp",
+-				         "GSK_RENDERER": "ngl"
+-				     },
+-				     "mounts": [
+-				         { "Source": "/etc/vdi", "Destination": "/etc/vdi", "Type": "bind", "ReadOnly": true },
+-				         { "Source": "/etc/passwd", "Destination": "/etc/passwd", "Type": "bind", "ReadOnly": true },
+-				         { "Source": "/etc/group", "Destination": "/etc/group", "Type": "bind", "ReadOnly": true },
+-				         { "Source": "/etc/shadow", "Destination": "/etc/shadow", "Type": "bind", "ReadOnly": true },
+-				         { "Source": "/home", "Destination": "/home", "Type": "bind" }
+-				     ],
+-				     "command": ["/usr/sbin/init"]
+-				     })";
+-
+-        std::clog << "Create string: : " << create_command << std::endl;
+-
+-        struct curl_slist* headers = nullptr;
+-        headers = curl_slist_append(headers, "Content-Type: application/json");
+-
+-        curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
+-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, create_command.c_str());
+-
+-        // Perform the request to create the container
+-        res = curl_easy_perform(curl);
+-
+-        if (res == CURLE_OK) {
+-            long http_code = 0;
+-            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+-
+-            if (http_code >= 200 && http_code < 300) {
+-                success = true;
+-                std::clog << "Container created successfully." << std::endl;
+-            } else {
+-                std::cerr << "Failed to create container, HTTP code: " << http_code << std::endl;
+-            }
+-        } else {
+-            std::cerr << "Failed to create container: " << curl_easy_strerror(res) << std::endl;
+-        }
+-
+-        curl_slist_free_all(headers);
+-        curl_easy_cleanup(curl);
+-    }
+-
+-    return success;
++	const bool refreshed = configuration.Refresh();
++	if (!refreshed)
++		WLog_WARN(TAG, "Failed to refresh VDI broker configuration; using defaults");
+ }
+ 
++static void vdi_initialize_configuration(const proxyConfig* config)
++{
++	if (!config)
++		return;
+ 
+-// Main function to manage the container
+-std::string manage_container(const std::string& username, const std::string& container_prefix= CONTAINER_PREFIX) {
+-    if (!container_exists(container_prefix + username)) {
+-        // Create container
+-    	create_container(container_prefix + username, username);
+-    }
+-
+-    if (!container_running(container_prefix + username)) {
+-        // Start the container
+-        if (!start_container(container_prefix + username)) {
+-            std::cerr << "Failed to start the container." << std::endl;
+-            return "";
+-        }
+-    }
+-
+-    // Wait for weston to be up
+-    wait_for_process(container_prefix + username, "/usr/bin/gnome-shell");
+-    wait_for_process(container_prefix + username, "/usr/libexec/gnome-remote-desktop-daemon --headless");
+-
+-    // Get the container's IP address
+-    std::string ip = get_container_ip(container_prefix + username);
+-    if (ip.empty()) {
+-        std::cerr << "Failed to retrieve the container's IP address." << std::endl;
+-    }
+-    return ip;
++	auto& configuration = vdi::Config();
++	const char* path = pf_config_get(config, plugin_name, kConfigPathKey);
++	if (path && *path)
++		configuration.SetConfigPath(path);
+ }
+ 
+-struct demo_custom_data
++static void vdi_log_configuration_state(bool refreshed)
++{
++	auto& configuration = vdi::Config();
++	const std::string configPath = configuration.ConfigPath();
++	const std::string podmanImage = configuration.PodmanImage();
++	const std::string driDevice = configuration.DriDevice();
++	const std::string homePath = configuration.HomePath();
++	const std::string shadowPath = configuration.ShadowPath();
++	const std::string groupPath = configuration.GroupPath();
++	const std::string passwdPath = configuration.PasswdPath();
++	const std::string pamPath = configuration.PamPath();
++	const std::string dockerfilePath = configuration.DockerfilePath();
++	const std::string pamService = configuration.PamServiceName();
++
++	const char* configPathStr = configPath.empty() ? "<defaults>" : configPath.c_str();
++	const char* dockerfileStr = dockerfilePath.empty() ? "<unset>" : dockerfilePath.c_str();
++
++	if (!refreshed)
++		WLog_WARN(TAG, "Failed to refresh VDI broker configuration at %s; using defaults",
++		         configPathStr);
++
++	WLog_INFO(TAG, "VDI broker configuration loaded");
++	WLog_INFO(TAG, "  config_path   : %s", configPathStr);
++	WLog_INFO(TAG, "  podman_image  : %s", podmanImage.c_str());
++	WLog_INFO(TAG, "  dri_device    : %s", driDevice.c_str());
++	WLog_INFO(TAG, "  home_path     : %s", homePath.c_str());
++	WLog_INFO(TAG, "  shadow_path   : %s", shadowPath.c_str());
++	WLog_INFO(TAG, "  group_path    : %s", groupPath.c_str());
++	WLog_INFO(TAG, "  passwd_path   : %s", passwdPath.c_str());
++	WLog_INFO(TAG, "  pam_path      : %s", pamPath.c_str());
++	WLog_INFO(TAG, "  pam_service   : %s", pamService.c_str());
++	WLog_INFO(TAG, "  dockerfile    : %s", dockerfileStr);
++}
++
++
++struct vdi_custom_data
+ {
+ 	proxyPluginsManager* mgr;
+ 	int somesetting;
+ };
+ 
+-static constexpr char plugin_name[] = "vdi-broker";
+-static constexpr char plugin_desc[] = "Intercepts RDP Authentication and forwards the connection to an RDP Enabled Container";
+-
+-static BOOL demo_plugin_unload(proxyPlugin* plugin)
++static BOOL vdi_plugin_unload(proxyPlugin* plugin)
+ {
+ 	WINPR_ASSERT(plugin);
+ 
+-	std::cout << "C++ demo plugin: unloading..." << std::endl;
++	std::cout << "C++ vdi plugin: unloading..." << std::endl;
+ 
+ 	/* Here we have to free up our custom data storage. */
+ 	if (plugin)
+-		delete static_cast<struct demo_custom_data*>(plugin->custom);
++		delete static_cast<struct vdi_custom_data*>(plugin->custom);
+ 
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_client_init_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
++static BOOL vdi_client_init_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+@@ -402,7 +160,7 @@ static BOOL demo_client_init_connect(proxyPlugin* plugin, proxyData* pdata, void
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_client_uninit_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
++static BOOL vdi_client_uninit_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+@@ -475,8 +233,16 @@ bool vdi_auth(const std::string& username, const std::string& password) {
+     conv.conv = pam_conversation;
+     conv.appdata_ptr = &conv_data;
+ 
++    auto& configuration = vdi::Config();
++    if (!configuration.Refresh())
++        WLog_WARN(TAG, "Using default PAM configuration; reload failed");
++
++    std::string pamService = configuration.PamServiceName();
++    if (pamService.empty())
++        pamService.assign(kDefaultPamServiceName);
++
+     // Start PAM transaction
+-    int retval = pam_start("vdi-broker", username.c_str(), &conv, &pamh);
++    int retval = pam_start(pamService.c_str(), username.c_str(), &conv, &pamh);
+     if (retval != PAM_SUCCESS) {
+         std::cerr << "pam_start failed: " << pam_strerror(pamh, retval) << std::endl;
+         return false;
+@@ -508,7 +274,7 @@ bool vdi_auth(const std::string& username, const std::string& password) {
+     return true;
+ }
+ 
+-static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
++static BOOL vdi_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+@@ -528,6 +294,8 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 	std::string username = uname;
+ 	std::string password = passw;
+ 
++	vdi_refresh_configuration(pdata);
++
+ 	WLog_INFO(TAG, "Username full: %s", username.c_str());
+ 
+ 	//Set Default Codec
+@@ -547,18 +315,18 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 		}
+ 	}
+ 
+-	auto user = username.substr(0, hashPos);
++	std::string user = (hashPos == std::string::npos) ? username : username.substr(0, hashPos);
+ 
+ 	//WLog_INFO(TAG, "USING CODEC NSC");
+ 	if(!vdi_auth(user, password)) {
+ 		return FALSE;
+ 	}
+ 	WLog_INFO(TAG, "Username: %s", username.c_str());
+-	auto ip = manage_container(user).c_str();
+-	if(ip != "") {
+-		WLog_INFO(TAG, "Setting target address: %s", ip);
++	std::string ip = vdi::ManageContainer(user);
++	if(!ip.empty()) {
++		WLog_INFO(TAG, "Setting target address: %s", ip.c_str());
+ 		//Hardcoded password for now, set the same for grd in container
+-		freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip);
++		freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip.c_str());
+ 		freerdp_settings_set_string(settings, FreeRDP_Username, "rdp");
+ 		freerdp_settings_set_string(settings, FreeRDP_Password, "rdp");
+ 		freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
+@@ -567,7 +335,7 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_client_post_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
++static BOOL vdi_client_post_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+@@ -579,7 +347,7 @@ static BOOL demo_client_post_connect(proxyPlugin* plugin, proxyData* pdata, void
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_client_post_disconnect(proxyPlugin* plugin, proxyData* pdata, void* custom)
++static BOOL vdi_client_post_disconnect(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+@@ -589,7 +357,7 @@ static BOOL demo_client_post_disconnect(proxyPlugin* plugin, proxyData* pdata, v
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_client_x509_certificate(proxyPlugin* plugin, proxyData* pdata, void* custom)
++static BOOL vdi_client_x509_certificate(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+@@ -599,7 +367,7 @@ static BOOL demo_client_x509_certificate(proxyPlugin* plugin, proxyData* pdata,
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_client_login_failure(proxyPlugin* plugin, proxyData* pdata, void* custom)
++static BOOL vdi_client_login_failure(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+@@ -609,7 +377,7 @@ static BOOL demo_client_login_failure(proxyPlugin* plugin, proxyData* pdata, voi
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_client_end_paint(proxyPlugin* plugin, proxyData* pdata, void* custom)
++static BOOL vdi_client_end_paint(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+@@ -619,7 +387,7 @@ static BOOL demo_client_end_paint(proxyPlugin* plugin, proxyData* pdata, void* c
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_client_redirect(proxyPlugin* plugin, proxyData* pdata, void* custom)
++static BOOL vdi_client_redirect(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+@@ -629,7 +397,7 @@ static BOOL demo_client_redirect(proxyPlugin* plugin, proxyData* pdata, void* cu
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_server_post_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
++static BOOL vdi_server_post_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+@@ -642,7 +410,7 @@ static BOOL demo_server_post_connect(proxyPlugin* plugin, proxyData* pdata, void
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_server_peer_activate(proxyPlugin* plugin, proxyData* pdata, void* custom)
++static BOOL vdi_server_peer_activate(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+@@ -652,7 +420,7 @@ static BOOL demo_server_peer_activate(proxyPlugin* plugin, proxyData* pdata, voi
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_server_channels_init(proxyPlugin* plugin, proxyData* pdata, void* custom)
++static BOOL vdi_server_channels_init(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+@@ -662,7 +430,7 @@ static BOOL demo_server_channels_init(proxyPlugin* plugin, proxyData* pdata, voi
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_server_channels_free(proxyPlugin* plugin, proxyData* pdata, void* custom)
++static BOOL vdi_server_channels_free(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+@@ -672,7 +440,7 @@ static BOOL demo_server_channels_free(proxyPlugin* plugin, proxyData* pdata, voi
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_server_session_end(proxyPlugin* plugin, proxyData* pdata, void* custom)
++static BOOL vdi_server_session_end(proxyPlugin* plugin, proxyData* pdata, void* custom)
+ {
+ 	WINPR_ASSERT(plugin);
+ 	WINPR_ASSERT(pdata);
+@@ -682,7 +450,7 @@ static BOOL demo_server_session_end(proxyPlugin* plugin, proxyData* pdata, void*
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_filter_keyboard_event(proxyPlugin* plugin, proxyData* pdata, void* param)
++static BOOL vdi_filter_keyboard_event(proxyPlugin* plugin, proxyData* pdata, void* param)
+ {
+ 	proxyPluginsManager* mgr = nullptr;
+ 	auto event_data = static_cast<const proxyKeyboardEventInfo*>(param);
+@@ -700,14 +468,14 @@ static BOOL demo_filter_keyboard_event(proxyPlugin* plugin, proxyData* pdata, vo
+ 	if (event_data->rdp_scan_code == RDP_SCANCODE_KEY_B)
+ 	{
+ 		/* user typed 'B', that means bye :) */
+-		std::cout << "C++ demo plugin: aborting connection" << std::endl;
++		std::cout << "C++ vdi plugin: aborting connection" << std::endl;
+ 		mgr->AbortConnect(mgr, pdata);
+ 	}
+ 
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_filter_unicode_event(proxyPlugin* plugin, proxyData* pdata, void* param)
++static BOOL vdi_filter_unicode_event(proxyPlugin* plugin, proxyData* pdata, void* param)
+ {
+ 	proxyPluginsManager* mgr = nullptr;
+ 	auto event_data = static_cast<const proxyUnicodeEventInfo*>(param);
+@@ -725,7 +493,7 @@ static BOOL demo_filter_unicode_event(proxyPlugin* plugin, proxyData* pdata, voi
+ 	if (event_data->code == 'b')
+ 	{
+ 		/* user typed 'B', that means bye :) */
+-		std::cout << "C++ demo plugin: aborting connection" << std::endl;
++		std::cout << "C++ vdi plugin: aborting connection" << std::endl;
+ 		mgr->AbortConnect(mgr, pdata);
+ 	}
+ 
+@@ -758,7 +526,7 @@ void printDelayBetweenCalls() {
+ }
+ 
+ 
+-static BOOL demo_mouse_event(proxyPlugin* plugin, proxyData* pdata, void* param)
++static BOOL vdi_mouse_event(proxyPlugin* plugin, proxyData* pdata, void* param)
+ {
+ 	auto event_data = static_cast<const proxyMouseEventInfo*>(param);
+ 
+@@ -771,7 +539,7 @@ static BOOL demo_mouse_event(proxyPlugin* plugin, proxyData* pdata, void* param)
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_mouse_ex_event(proxyPlugin* plugin, proxyData* pdata, void* param)
++static BOOL vdi_mouse_ex_event(proxyPlugin* plugin, proxyData* pdata, void* param)
+ {
+ 	auto event_data = static_cast<const proxyMouseExEventInfo*>(param);
+ 
+@@ -783,7 +551,7 @@ static BOOL demo_mouse_ex_event(proxyPlugin* plugin, proxyData* pdata, void* par
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_client_channel_data(proxyPlugin* plugin, proxyData* pdata, void* param)
++static BOOL vdi_client_channel_data(proxyPlugin* plugin, proxyData* pdata, void* param)
+ {
+ 	const auto* channel = static_cast<const proxyChannelDataEventInfo*>(param);
+ 
+@@ -796,7 +564,7 @@ static BOOL demo_client_channel_data(proxyPlugin* plugin, proxyData* pdata, void
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_server_channel_data(proxyPlugin* plugin, proxyData* pdata, void* param)
++static BOOL vdi_server_channel_data(proxyPlugin* plugin, proxyData* pdata, void* param)
+ {
+ 	const auto* channel = static_cast<const proxyChannelDataEventInfo*>(param);
+ 
+@@ -809,7 +577,7 @@ static BOOL demo_server_channel_data(proxyPlugin* plugin, proxyData* pdata, void
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_dynamic_channel_create(proxyPlugin* plugin, proxyData* pdata, void* param)
++static BOOL vdi_dynamic_channel_create(proxyPlugin* plugin, proxyData* pdata, void* param)
+ {
+ 	const auto* channel = static_cast<const proxyChannelDataEventInfo*>(param);
+ 
+@@ -821,7 +589,7 @@ static BOOL demo_dynamic_channel_create(proxyPlugin* plugin, proxyData* pdata, v
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_server_fetch_target_addr(proxyPlugin* plugin, proxyData* pdata, void* param)
++static BOOL vdi_server_fetch_target_addr(proxyPlugin* plugin, proxyData* pdata, void* param)
+ {
+ 	auto event_data = static_cast<const proxyFetchTargetEventInfo*>(param);
+ 
+@@ -834,7 +602,7 @@ static BOOL demo_server_fetch_target_addr(proxyPlugin* plugin, proxyData* pdata,
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_server_peer_logon(proxyPlugin* plugin, proxyData* pdata, void* param)
++static BOOL vdi_server_peer_logon(proxyPlugin* plugin, proxyData* pdata, void* param)
+ {
+ 	auto info = static_cast<const proxyServerPeerLogon*>(param);
+ 	WINPR_ASSERT(plugin);
+@@ -848,7 +616,7 @@ static BOOL demo_server_peer_logon(proxyPlugin* plugin, proxyData* pdata, void*
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_dyn_channel_intercept_list(proxyPlugin* plugin, proxyData* pdata, void* arg)
++static BOOL vdi_dyn_channel_intercept_list(proxyPlugin* plugin, proxyData* pdata, void* arg)
+ {
+ 	auto data = static_cast<proxyChannelToInterceptData*>(arg);
+ 
+@@ -860,7 +628,7 @@ static BOOL demo_dyn_channel_intercept_list(proxyPlugin* plugin, proxyData* pdat
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_static_channel_intercept_list(proxyPlugin* plugin, proxyData* pdata, void* arg)
++static BOOL vdi_static_channel_intercept_list(proxyPlugin* plugin, proxyData* pdata, void* arg)
+ {
+ 	auto data = static_cast<proxyChannelToInterceptData*>(arg);
+ 
+@@ -872,7 +640,7 @@ static BOOL demo_static_channel_intercept_list(proxyPlugin* plugin, proxyData* p
+ 	return TRUE;
+ }
+ 
+-static BOOL demo_dyn_channel_intercept(proxyPlugin* plugin, proxyData* pdata, void* arg)
++static BOOL vdi_dyn_channel_intercept(proxyPlugin* plugin, proxyData* pdata, void* arg)
+ {
+ 	auto data = static_cast<proxyDynChannelInterceptData*>(arg);
+ 
+@@ -895,44 +663,49 @@ extern "C"
+ 
+ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userdata)
+ {
+-	struct demo_custom_data* custom = nullptr;
++	struct vdi_custom_data* custom = nullptr;
+ 	proxyPlugin plugin = {};
+ 
++	const proxyConfig* initialConfig = static_cast<const proxyConfig*>(userdata);
++	vdi_initialize_configuration(initialConfig);
++	const bool refreshed = vdi::Config().Refresh();
++	vdi_log_configuration_state(refreshed);
++
+ 	plugin.name = plugin_name;
+ 	plugin.description = plugin_desc;
+-	plugin.PluginUnload = demo_plugin_unload;
+-	plugin.ClientInitConnect = demo_client_init_connect;
+-	//plugin.ClientUninitConnect = demo_client_uninit_connect;
+-	plugin.ClientPreConnect = demo_client_pre_connect;
++	plugin.PluginUnload = vdi_plugin_unload;
++	plugin.ClientInitConnect = vdi_client_init_connect;
++	//plugin.ClientUninitConnect = vdi_client_uninit_connect;
++	plugin.ClientPreConnect = vdi_client_pre_connect;
+ 	plugin.ServerSessionStarted = vdi_server_session_started;
+-	//plugin.ClientPostConnect = demo_client_post_connect;
+-	//plugin.ClientPostDisconnect = demo_client_post_disconnect;
+-	//plugin.ClientX509Certificate = demo_client_x509_certificate;
+-	//plugin.ClientLoginFailure = demo_client_login_failure;
+-	//plugin.ClientEndPaint = demo_client_end_paint;
+-	//plugin.ClientRedirect = demo_client_redirect;
+-	//plugin.ServerPostConnect = demo_server_post_connect;
+-	//plugin.ServerPeerActivate = demo_server_peer_activate;
+-	//plugin.ServerChannelsInit = demo_server_channels_init;
+-	//plugin.ServerChannelsFree = demo_server_channels_free;
+-	//plugin.ServerSessionEnd = demo_server_session_end;
+-	//plugin.KeyboardEvent = demo_filter_keyboard_event;
+-	//plugin.UnicodeEvent = demo_filter_unicode_event;
+-	//plugin.MouseEvent = demo_mouse_event;
+-	//plugin.MouseExEvent = demo_mouse_ex_event;
+-	//plugin.ClientChannelData = demo_client_channel_data;
+-	//plugin.ServerChannelData = demo_server_channel_data;
+-	//plugin.DynamicChannelCreate = demo_dynamic_channel_create;
+-	//plugin.ServerFetchTargetAddr = demo_server_fetch_target_addr;
+-	//plugin.ServerPeerLogon = demo_server_peer_logon;
+-
+-	plugin.StaticChannelToIntercept = demo_static_channel_intercept_list;
+-	plugin.DynChannelToIntercept = demo_dyn_channel_intercept_list;
+-	plugin.DynChannelIntercept = demo_dyn_channel_intercept;
++	//plugin.ClientPostConnect = vdi_client_post_connect;
++	//plugin.ClientPostDisconnect = vdi_client_post_disconnect;
++	//plugin.ClientX509Certificate = vdi_client_x509_certificate;
++	//plugin.ClientLoginFailure = vdi_client_login_failure;
++	//plugin.ClientEndPaint = vdi_client_end_paint;
++	//plugin.ClientRedirect = vdi_client_redirect;
++	//plugin.ServerPostConnect = vdi_server_post_connect;
++	//plugin.ServerPeerActivate = vdi_server_peer_activate;
++	//plugin.ServerChannelsInit = vdi_server_channels_init;
++	//plugin.ServerChannelsFree = vdi_server_channels_free;
++	//plugin.ServerSessionEnd = vdi_server_session_end;
++	//plugin.KeyboardEvent = vdi_filter_keyboard_event;
++	//plugin.UnicodeEvent = vdi_filter_unicode_event;
++	//plugin.MouseEvent = vdi_mouse_event;
++	//plugin.MouseExEvent = vdi_mouse_ex_event;
++	//plugin.ClientChannelData = vdi_client_channel_data;
++	//plugin.ServerChannelData = vdi_server_channel_data;
++	//plugin.DynamicChannelCreate = vdi_dynamic_channel_create;
++	//plugin.ServerFetchTargetAddr = vdi_server_fetch_target_addr;
++	//plugin.ServerPeerLogon = vdi_server_peer_logon;
++
++	plugin.StaticChannelToIntercept = vdi_static_channel_intercept_list;
++	plugin.DynChannelToIntercept = vdi_dyn_channel_intercept_list;
++	plugin.DynChannelIntercept = vdi_dyn_channel_intercept;
+ 
+ 	plugin.userdata = userdata;
+ 
+-	custom = new (struct demo_custom_data);
++	custom = new (struct vdi_custom_data);
+ 	if (!custom)
+ 		return FALSE;
+ 
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.sample.yaml b/server/proxy/modules/vdi_broker/vdi_broker.sample.yaml
+new file mode 100644
+index 000000000..db42a4cad
+--- /dev/null
++++ b/server/proxy/modules/vdi_broker/vdi_broker.sample.yaml
+@@ -0,0 +1,20 @@
++# Example configuration for the VDI broker plugin.
++# Copy this file and adjust paths according to your environment.
++
++podman_image: vdi-gnome
++
++# Override the render node passed into the container (optional).
++dri_device: /dev/dri/renderD128
++
++# Host directories bound into the VDI session container.
++home_path: /home
++shadow_path: /etc/shadow
++group_path: /etc/group
++passwd_path: /etc/passwd
++
++# Path to the PAM stack file used for authentication.
++pam_path: /etc/pam.d/vdi-broker
++
++# Optional path to a Dockerfile that can be used to build the podman image
++# when it is not present locally.
++dockerfile_path: /path/to/Dockerfile
+diff --git a/server/proxy/modules/vdi_broker/vdi_container_manager.cpp b/server/proxy/modules/vdi_broker/vdi_container_manager.cpp
+new file mode 100644
+index 000000000..897b03e58
+--- /dev/null
++++ b/server/proxy/modules/vdi_broker/vdi_container_manager.cpp
+@@ -0,0 +1,722 @@
++#include "vdi_container_manager.h"
++
++#include <curl/curl.h>
++#include <json/json.h>
++
++#include <algorithm>
++#include <chrono>
++#include <cctype>
++#include <cstdlib>
++#include <filesystem>
++#include <fstream>
++#include <iostream>
++#include <sstream>
++#include <system_error>
++#include <thread>
++
++namespace
++{
++constexpr char kDefaultConfigPath[] = "/etc/vdi/vdi_broker.yaml";
++constexpr char kEnvConfigPath[] = "VDI_BROKER_CONFIG";
++constexpr char kDefaultPamService[] = "vdi-broker";
++constexpr char kPodmanSocket[] = "/var/run/podman/podman.sock";
++const std::string kPodmanApiBase = "http://d/v5.3.0/libpod/containers/";
++
++using namespace std::chrono_literals;
++
++size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
++{
++    const auto total = size * nmemb;
++    auto* buffer = static_cast<std::string*>(userp);
++    buffer->append(static_cast<const char*>(contents), total);
++    return total;
++}
++
++std::string BuildUrl(const std::string& containerName, const std::string& endpoint)
++{
++    std::string url = kPodmanApiBase;
++    url.append(containerName);
++    url.append(endpoint);
++    return url;
++}
++
++bool BuildImageFromDockerfile(const std::string& image, const std::string& dockerfilePath)
++{
++    if (dockerfilePath.empty())
++    {
++        std::cerr << "Dockerfile path not configured; unable to build image " << image << std::endl;
++        return false;
++    }
++
++    std::filesystem::path dockerfile(dockerfilePath);
++    if (!std::filesystem::exists(dockerfile))
++    {
++        std::cerr << "Dockerfile not found at " << dockerfilePath << std::endl;
++        return false;
++    }
++
++    std::filesystem::path context = dockerfile.parent_path();
++    if (context.empty())
++        context = std::filesystem::path(".");
++
++    std::string command = "podman build -t \"" + image + "\" -f \"" + dockerfile.generic_string() +
++                          "\" \"" + context.generic_string() + "\"";
++
++    std::clog << "Building Podman image '" << image << "' using Dockerfile " << dockerfilePath << std::endl;
++
++    const int rc = std::system(command.c_str());
++    if (rc != 0)
++    {
++        std::cerr << "podman build failed with exit code " << rc << std::endl;
++        return false;
++    }
++
++    std::clog << "Successfully built Podman image '" << image << "'" << std::endl;
++    return true;
++}
++
++std::string GetContainerInfo(const std::string& containerName, const std::string& endpoint)
++{
++    CURL* curl = curl_easy_init();
++    if (!curl)
++        return {};
++
++    std::string response;
++    std::string url = BuildUrl(containerName, endpoint);
++
++    curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, kPodmanSocket);
++    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
++    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
++    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
++
++    const CURLcode res = curl_easy_perform(curl);
++    if (res != CURLE_OK)
++    {
++        std::cerr << "Failed to query container info: " << curl_easy_strerror(res) << std::endl;
++        curl_easy_cleanup(curl);
++        return {};
++    }
++
++    long httpCode = 0;
++    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
++    curl_easy_cleanup(curl);
++
++    if (httpCode == 404)
++        return {};
++    if (httpCode >= 400)
++    {
++        std::cerr << "HTTP error code: " << httpCode << std::endl;
++        return {};
++    }
++
++    return response;
++}
++
++bool ContainerExistsInternal(const std::string& containerName)
++{
++    const std::string payload = GetContainerInfo(containerName, "/json");
++    if (payload.empty())
++        std::clog << "Container does not exist: " << containerName << std::endl;
++    return !payload.empty();
++}
++
++bool ContainerRunningInternal(const std::string& containerName)
++{
++    const std::string payload = GetContainerInfo(containerName, "/json");
++    if (payload.empty())
++        return false;
++
++    Json::Value root;
++    Json::CharReaderBuilder builder;
++    std::string errs;
++    std::istringstream stream(payload);
++
++    if (!Json::parseFromStream(builder, stream, &root, &errs))
++    {
++        std::cerr << "Failed to parse container info: " << errs << std::endl;
++        return false;
++    }
++
++    const auto status = root["State"]["Status"].asString();
++    return status == "running";
++}
++
++bool WaitForProcessInternal(const std::string& containerName, const std::string& processName)
++{
++    std::clog << "Waiting for <" << processName << "> in container: " << containerName << std::endl;
++
++    for (int attempts = 0; attempts < 10; attempts++)
++    {
++        const std::string response = GetContainerInfo(containerName, "/top");
++        if (response.empty())
++        {
++            std::this_thread::sleep_for(2s);
++            continue;
++        }
++
++        Json::Value root;
++        Json::CharReaderBuilder builder;
++        std::string errs;
++        std::istringstream stream(response);
++
++        if (!Json::parseFromStream(builder, stream, &root, &errs))
++        {
++            std::cerr << "Error parsing JSON: " << errs << std::endl;
++            return false;
++        }
++
++        const auto& processes = root["Processes"];
++        if (!processes.isArray())
++        {
++            std::cerr << "Invalid JSON: 'Processes' missing or not array" << std::endl;
++            return false;
++        }
++
++        for (const auto& process : processes)
++        {
++            if (!process.isArray() || process.empty())
++                continue;
++
++            if (process[process.size() - 1].asString() == processName)
++                return true;
++        }
++
++        std::this_thread::sleep_for(2s);
++    }
++
++    return false;
++}
++
++Json::Value BuildCreatePayload(const std::string& containerName, const std::string& username)
++{
++    auto& config = vdi::Config();
++
++    Json::Value root(Json::objectValue);
++    root["name"] = containerName;
++    root["hostname"] = containerName;
++    root["image"] = config.PodmanImage();
++
++    Json::Value caps(Json::arrayValue);
++    caps.append("SYS_ADMIN");
++    caps.append("NET_ADMIN");
++    caps.append("SYS_PTRACE");
++    caps.append("AUDIT_CONTROL");
++    root["cap_add"] = caps;
++
++    Json::Value devices(Json::arrayValue);
++    Json::Value fuse(Json::objectValue);
++    fuse["path"] = "/dev/fuse";
++    devices.append(fuse);
++
++    const auto driDevice = config.DriDevice();
++    if (!driDevice.empty())
++    {
++        Json::Value dri(Json::objectValue);
++        dri["path"] = driDevice;
++        devices.append(dri);
++    }
++    root["devices"] = devices;
++
++    Json::Value env(Json::objectValue);
++    env["XDG_RUNTIME_DIR"] = "/tmp";
++    env["GSK_RENDERER"] = "ngl";
++    env["VDI_USER"] = username;
++    root["env"] = env;
++
++    Json::Value mounts(Json::arrayValue);
++    auto appendMount = [&mounts](const std::string& source, const std::string& destination, bool readOnly) {
++        if (source.empty() || destination.empty())
++            return;
++        Json::Value mount(Json::objectValue);
++        mount["Source"] = source;
++        mount["Destination"] = destination;
++        mount["Type"] = "bind";
++        if (readOnly)
++            mount["ReadOnly"] = true;
++        mounts.append(mount);
++    };
++
++    appendMount("/etc/vdi", "/etc/vdi", true);
++    appendMount(config.PasswdPath(), "/etc/passwd", true);
++    appendMount(config.GroupPath(), "/etc/group", true);
++    appendMount(config.ShadowPath(), "/etc/shadow", true);
++    appendMount(config.HomePath(), "/home", false);
++
++    const auto pamPath = config.PamPath();
++    if (!pamPath.empty())
++        appendMount(pamPath, pamPath, true);
++
++    root["mounts"] = mounts;
++
++    Json::Value command(Json::arrayValue);
++    command.append("/usr/sbin/init");
++    root["command"] = command;
++
++    return root;
++}
++
++bool CreateContainerInternal(const std::string& containerName, const std::string& username,
++                             bool allowBuild = true)
++{
++    CURL* curl = curl_easy_init();
++    if (!curl)
++        return false;
++
++    const Json::Value payload = BuildCreatePayload(containerName, username);
++    Json::StreamWriterBuilder writerBuilder;
++    writerBuilder["indentation"] = "";
++    const std::string payloadStr = Json::writeString(writerBuilder, payload);
++
++    std::clog << "Creating container " << containerName << " with payload: " << payloadStr << std::endl;
++
++    struct curl_slist* headers = nullptr;
++    headers = curl_slist_append(headers, "Content-Type: application/json");
++
++    const std::string url = kPodmanApiBase + std::string("create");
++    curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, kPodmanSocket);
++    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
++    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
++    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payloadStr.c_str());
++
++    const CURLcode res = curl_easy_perform(curl);
++    bool success = false;
++    bool missingImage = false;
++
++    if (res == CURLE_OK)
++    {
++        long httpCode = 0;
++        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
++        success = (httpCode >= 200 && httpCode < 300);
++        if (!success)
++        {
++            std::cerr << "Failed to create container, HTTP code: " << httpCode << std::endl;
++            if (httpCode == 404)
++                missingImage = true;
++        }
++    }
++    else
++    {
++        std::cerr << "Failed to create container: " << curl_easy_strerror(res) << std::endl;
++    }
++
++    curl_slist_free_all(headers);
++    curl_easy_cleanup(curl);
++
++    if (!success && missingImage && allowBuild)
++    {
++        auto& config = vdi::Config();
++        const std::string image = config.PodmanImage();
++        const std::string dockerfile = config.DockerfilePath();
++        if (BuildImageFromDockerfile(image, dockerfile))
++            return CreateContainerInternal(containerName, username, false);
++    }
++
++    return success;
++}
++
++bool StartContainerInternal(const std::string& containerName)
++{
++    CURL* curl = curl_easy_init();
++    if (!curl)
++        return false;
++
++    const std::string url = BuildUrl(containerName, "/start");
++
++    std::clog << "Starting container: " << containerName << std::endl;
++
++    struct curl_slist* headers = nullptr;
++    headers = curl_slist_append(headers, "Content-Type: application/json");
++
++    curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, kPodmanSocket);
++    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
++    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
++    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, "{}");
++
++    const CURLcode res = curl_easy_perform(curl);
++    bool success = false;
++
++    if (res == CURLE_OK)
++    {
++        long httpCode = 0;
++        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
++        success = (httpCode >= 200 && httpCode < 300);
++        if (!success)
++            std::cerr << "Failed to start container, HTTP code: " << httpCode << std::endl;
++    }
++    else
++    {
++        std::cerr << "Failed to start container: " << curl_easy_strerror(res) << std::endl;
++    }
++
++    curl_slist_free_all(headers);
++    curl_easy_cleanup(curl);
++    return success;
++}
++
++std::string GetContainerIpInternal(const std::string& containerName)
++{
++    const std::string payload = GetContainerInfo(containerName, "/json");
++    if (payload.empty())
++        return {};
++
++    Json::Value root;
++    Json::CharReaderBuilder builder;
++    std::string errs;
++    std::istringstream stream(payload);
++
++    if (!Json::parseFromStream(builder, stream, &root, &errs))
++    {
++        std::cerr << "Failed to parse container JSON info: " << errs << std::endl;
++        return {};
++    }
++
++    const auto& networks = root["NetworkSettings"]["Networks"];
++    if (!networks.isObject())
++    {
++        std::cerr << "No network information available for container." << std::endl;
++        return {};
++    }
++
++    for (const auto& name : networks.getMemberNames())
++    {
++        const auto& network = networks[name];
++        const std::string ip = network["IPAddress"].asString();
++        if (!ip.empty())
++        {
++            std::clog << "Found IP: " << ip << std::endl;
++            return ip;
++        }
++    }
++
++    return {};
++}
++} // namespace
++
++namespace vdi
++{
++VdiBrokerConfig& VdiBrokerConfig::Instance()
++{
++    static VdiBrokerConfig instance;
++    return instance;
++}
++
++VdiBrokerConfig::VdiBrokerConfig()
++    : configPath_(), podmanImage_(), driDevice_(), homePath_(), shadowPath_(), groupPath_(),
++      passwdPath_(), pamPath_(), pamServiceName_(kDefaultPamService), dockerfilePath_(),
++      hasLastWrite_(false), loaded_(false)
++{
++    const char* env = std::getenv(kEnvConfigPath);
++    if (env && *env)
++        configPath_ = env;
++    else
++        configPath_ = kDefaultConfigPath;
++
++    ApplyDefaultsUnlocked();
++}
++
++void VdiBrokerConfig::SetConfigPath(const std::string& path)
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (path.empty() || path == configPath_)
++        return;
++
++    configPath_ = path;
++    hasLastWrite_ = false;
++    loaded_ = false;
++}
++
++std::string VdiBrokerConfig::ConfigPath() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return configPath_;
++}
++
++bool VdiBrokerConfig::Refresh()
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++
++    if (!loaded_)
++        ApplyDefaultsUnlocked();
++
++    if (configPath_.empty())
++    {
++        loaded_ = true;
++        hasLastWrite_ = false;
++        return true;
++    }
++
++    std::error_code ec;
++    const auto writeTime = std::filesystem::last_write_time(configPath_, ec);
++    if (ec)
++    {
++        if (!loaded_)
++            ApplyDefaultsUnlocked();
++        hasLastWrite_ = false;
++        return false;
++    }
++
++    if (!hasLastWrite_ || writeTime != lastWrite_ || !loaded_)
++    {
++        if (!LoadFromFileUnlocked(configPath_))
++        {
++            ApplyDefaultsUnlocked();
++            hasLastWrite_ = false;
++            loaded_ = true;
++            return false;
++        }
++        lastWrite_ = writeTime;
++        hasLastWrite_ = true;
++        loaded_ = true;
++    }
++
++    return true;
++}
++
++std::string VdiBrokerConfig::PodmanImage() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return podmanImage_;
++}
++
++std::string VdiBrokerConfig::DriDevice() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return driDevice_;
++}
++
++std::string VdiBrokerConfig::HomePath() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return homePath_;
++}
++
++std::string VdiBrokerConfig::ShadowPath() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return shadowPath_;
++}
++
++std::string VdiBrokerConfig::GroupPath() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return groupPath_;
++}
++
++std::string VdiBrokerConfig::PasswdPath() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return passwdPath_;
++}
++
++std::string VdiBrokerConfig::PamPath() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return pamPath_;
++}
++
++std::string VdiBrokerConfig::PamServiceName() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return pamServiceName_;
++}
++
++std::string VdiBrokerConfig::DockerfilePath() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return dockerfilePath_;
++}
++
++void VdiBrokerConfig::ApplyDefaultsUnlocked()
++{
++    podmanImage_ = "vdi-gnome";
++    driDevice_ = "/dev/dri/renderD128";
++    homePath_ = "/home";
++    shadowPath_ = "/etc/shadow";
++    groupPath_ = "/etc/group";
++    passwdPath_ = "/etc/passwd";
++    pamPath_ = "/etc/pam.d/vdi-broker";
++    pamServiceName_ = ResolvePamService(pamPath_);
++    dockerfilePath_.clear();
++}
++
++bool VdiBrokerConfig::LoadFromFileUnlocked(const std::string& path)
++{
++    std::ifstream stream(path);
++    if (!stream.is_open())
++    {
++        std::cerr << "Unable to open configuration file: " << path << std::endl;
++        return false;
++    }
++
++    std::stringstream buffer;
++    buffer << stream.rdbuf();
++
++    ApplyDefaultsUnlocked();
++
++    if (!ParseYamlContentUnlocked(buffer.str()))
++        return false;
++
++    return true;
++}
++
++bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
++{
++    std::istringstream stream(content);
++    std::string line;
++
++    while (std::getline(stream, line))
++    {
++        std::string trimmed = Trim(line);
++        if (trimmed.empty() || trimmed[0] == '#')
++            continue;
++
++        const auto pos = trimmed.find(':');
++        if (pos == std::string::npos)
++            continue;
++
++        std::string key = Trim(trimmed.substr(0, pos));
++        std::string value = Trim(trimmed.substr(pos + 1));
++
++        const auto comment = value.find('#');
++        if (comment != std::string::npos)
++            value = Trim(value.substr(0, comment));
++
++        value = StripQuotes(value);
++        const std::string normalized = ToLower(key);
++
++        if (normalized == "podman_image")
++        {
++            if (!value.empty())
++                podmanImage_ = value;
++        }
++        else if (normalized == "dri_device" || normalized == "dri_render_device")
++        {
++            if (!value.empty())
++                driDevice_ = value;
++        }
++        else if (normalized == "home_path" || normalized == "home_directory_path" ||
++                 normalized == "home_dir")
++        {
++            if (!value.empty())
++                homePath_ = value;
++        }
++        else if (normalized == "shadow_path")
++        {
++            if (!value.empty())
++                shadowPath_ = value;
++        }
++        else if (normalized == "group_path")
++        {
++            if (!value.empty())
++                groupPath_ = value;
++        }
++        else if (normalized == "passwd_path" || normalized == "password_path")
++        {
++            if (!value.empty())
++                passwdPath_ = value;
++        }
++        else if (normalized == "pam_path" || normalized == "pam_config_path")
++        {
++            if (!value.empty())
++            {
++                pamPath_ = value;
++                pamServiceName_ = ResolvePamService(pamPath_);
++            }
++        }
++        else if (normalized == "dockerfile_path")
++        {
++            dockerfilePath_ = value;
++        }
++    }
++
++    pamServiceName_ = ResolvePamService(pamPath_);
++    return true;
++}
++
++std::string VdiBrokerConfig::ResolvePamService(const std::string& pamPath) const
++{
++    if (pamPath.empty())
++        return kDefaultPamService;
++
++    std::filesystem::path path(pamPath);
++    const std::string name = path.filename().string();
++    if (name.empty())
++        return kDefaultPamService;
++    return name;
++}
++
++std::string VdiBrokerConfig::Trim(const std::string& value)
++{
++    const auto first = value.find_first_not_of(" \t\r\n");
++    if (first == std::string::npos)
++        return {};
++    const auto last = value.find_last_not_of(" \t\r\n");
++    return value.substr(first, last - first + 1);
++}
++
++std::string VdiBrokerConfig::StripQuotes(const std::string& value)
++{
++    if (value.size() >= 2)
++    {
++        const char front = value.front();
++        const char back = value.back();
++        if ((front == '"' && back == '"') || (front == '\'' && back == '\''))
++            return value.substr(1, value.size() - 2);
++    }
++    return value;
++}
++
++std::string VdiBrokerConfig::ToLower(std::string value)
++{
++    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
++        return static_cast<char>(std::tolower(c));
++    });
++    return value;
++}
++
++VdiBrokerConfig& Config()
++{
++    return VdiBrokerConfig::Instance();
++}
++
++std::string ManageContainer(const std::string& username, const std::string& containerPrefix)
++{
++    auto& configuration = Config();
++    if (!configuration.Refresh())
++        std::clog << "VDI broker configuration reload failed, using defaults" << std::endl;
++
++    const std::string prefix = containerPrefix.empty() ? std::string("vdi-") : containerPrefix;
++    const std::string containerName = prefix + username;
++
++    if (!ContainerExistsInternal(containerName))
++    {
++        if (!CreateContainerInternal(containerName, username))
++        {
++            std::cerr << "Failed to create container for user " << username << std::endl;
++            return {};
++        }
++    }
++
++    if (!ContainerRunningInternal(containerName))
++    {
++        if (!StartContainerInternal(containerName))
++        {
++            std::cerr << "Failed to start container " << containerName << std::endl;
++            return {};
++        }
++    }
++
++    bool compositorReady = WaitForProcessInternal(containerName, "/usr/bin/gnome-shell");
++    compositorReady &= WaitForProcessInternal(containerName,
++                                              "/usr/libexec/gnome-remote-desktop-daemon --headless");
++    if (!compositorReady)
++        std::clog << "GNOME compositor not ready in container " << containerName << std::endl;
++
++    const std::string ip = GetContainerIpInternal(containerName);
++    if (ip.empty())
++        std::cerr << "Failed to retrieve IP for container " << containerName << std::endl;
++
++    return ip;
++}
++
++} // namespace vdi
+diff --git a/server/proxy/modules/vdi_broker/vdi_container_manager.h b/server/proxy/modules/vdi_broker/vdi_container_manager.h
+new file mode 100644
+index 000000000..46e743dc6
+--- /dev/null
++++ b/server/proxy/modules/vdi_broker/vdi_container_manager.h
+@@ -0,0 +1,63 @@
++#pragma once
++
++#include <filesystem>
++#include <mutex>
++#include <string>
++
++namespace vdi
++{
++class VdiBrokerConfig
++{
++public:
++    static VdiBrokerConfig& Instance();
++
++    void SetConfigPath(const std::string& path);
++    std::string ConfigPath() const;
++
++    bool Refresh();
++
++    std::string PodmanImage() const;
++    std::string DriDevice() const;
++    std::string HomePath() const;
++    std::string ShadowPath() const;
++    std::string GroupPath() const;
++    std::string PasswdPath() const;
++    std::string PamPath() const;
++    std::string PamServiceName() const;
++    std::string DockerfilePath() const;
++
++private:
++    VdiBrokerConfig();
++    VdiBrokerConfig(const VdiBrokerConfig&) = delete;
++    VdiBrokerConfig& operator=(const VdiBrokerConfig&) = delete;
++
++    void ApplyDefaultsUnlocked();
++    bool LoadFromFileUnlocked(const std::string& path);
++    bool ParseYamlContentUnlocked(const std::string& content);
++    std::string ResolvePamService(const std::string& pamPath) const;
++
++    static std::string Trim(const std::string& value);
++    static std::string StripQuotes(const std::string& value);
++    static std::string ToLower(std::string value);
++
++    mutable std::mutex mutex_;
++    std::string configPath_;
++    std::string podmanImage_;
++    std::string driDevice_;
++    std::string homePath_;
++    std::string shadowPath_;
++    std::string groupPath_;
++    std::string passwdPath_;
++    std::string pamPath_;
++    std::string pamServiceName_;
++    std::string dockerfilePath_;
++    std::filesystem::file_time_type lastWrite_;
++    bool hasLastWrite_;
++    bool loaded_;
++};
++
++VdiBrokerConfig& Config();
++
++std::string ManageContainer(const std::string& username, const std::string& containerPrefix = "vdi-");
++
++} // namespace vdi
+-- 
+2.51.0
+
+
+From 785aff906b272bfe730b386e676968be5e5bb9ea Mon Sep 17 00:00:00 2001
+From: Marco Martini <marco.martini.7@studenti.unipd.it>
+Date: Wed, 24 Sep 2025 13:15:01 +0200
+Subject: [PATCH 15/17] Fixed compilation error on old compilers
+
+---
+ .gitignore                                    |  3 +
+ .../proxy/modules/vdi_broker/vdi_broker.cpp   | 70 ++++++++++---------
+ 2 files changed, 39 insertions(+), 34 deletions(-)
+
+diff --git a/.gitignore b/.gitignore
+index 0726b4c3c..d504a3054 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,5 +1,8 @@
+ **/CMakeCache.txt
+ **/CMakeFiles
++.idea
+ build
+ checker
+ abi-checker
++AGENTS.md
++cmake-build-debug
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index 518124d78..3309b2555 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -53,6 +53,41 @@ static BOOL vdi_server_session_started(proxyPlugin* plugin, proxyData* pdata, vo
+ 	return TRUE;
+ }
+ 
++
++static void vdi_log_configuration_state(bool refreshed)
++{
++	auto& configuration = vdi::Config();
++	const std::string configPath = configuration.ConfigPath();
++	const std::string podmanImage = configuration.PodmanImage();
++	const std::string driDevice = configuration.DriDevice();
++	const std::string homePath = configuration.HomePath();
++	const std::string shadowPath = configuration.ShadowPath();
++	const std::string groupPath = configuration.GroupPath();
++	const std::string passwdPath = configuration.PasswdPath();
++	const std::string pamPath = configuration.PamPath();
++	const std::string dockerfilePath = configuration.DockerfilePath();
++	const std::string pamService = configuration.PamServiceName();
++
++	const char* configPathStr = configPath.empty() ? "<defaults>" : configPath.c_str();
++	const char* dockerfileStr = dockerfilePath.empty() ? "<unset>" : dockerfilePath.c_str();
++
++	if (!refreshed)
++		WLog_WARN(TAG, "Failed to refresh VDI broker configuration at %s; using defaults",
++		         configPathStr);
++
++	WLog_INFO(TAG, "VDI broker configuration loaded");
++	WLog_INFO(TAG, "  config_path   : %s", configPathStr);
++	WLog_INFO(TAG, "  podman_image  : %s", podmanImage.c_str());
++	WLog_INFO(TAG, "  dri_device    : %s", driDevice.c_str());
++	WLog_INFO(TAG, "  home_path     : %s", homePath.c_str());
++	WLog_INFO(TAG, "  shadow_path   : %s", shadowPath.c_str());
++	WLog_INFO(TAG, "  group_path    : %s", groupPath.c_str());
++	WLog_INFO(TAG, "  passwd_path   : %s", passwdPath.c_str());
++	WLog_INFO(TAG, "  pam_path      : %s", pamPath.c_str());
++	WLog_INFO(TAG, "  pam_service   : %s", pamService.c_str());
++	WLog_INFO(TAG, "  dockerfile    : %s", dockerfileStr);
++}
++
+ static void vdi_refresh_configuration(proxyData* pdata)
+ {
+ 	auto& configuration = vdi::Config();
+@@ -90,39 +125,6 @@ static void vdi_initialize_configuration(const proxyConfig* config)
+ 		configuration.SetConfigPath(path);
+ }
+ 
+-static void vdi_log_configuration_state(bool refreshed)
+-{
+-	auto& configuration = vdi::Config();
+-	const std::string configPath = configuration.ConfigPath();
+-	const std::string podmanImage = configuration.PodmanImage();
+-	const std::string driDevice = configuration.DriDevice();
+-	const std::string homePath = configuration.HomePath();
+-	const std::string shadowPath = configuration.ShadowPath();
+-	const std::string groupPath = configuration.GroupPath();
+-	const std::string passwdPath = configuration.PasswdPath();
+-	const std::string pamPath = configuration.PamPath();
+-	const std::string dockerfilePath = configuration.DockerfilePath();
+-	const std::string pamService = configuration.PamServiceName();
+-
+-	const char* configPathStr = configPath.empty() ? "<defaults>" : configPath.c_str();
+-	const char* dockerfileStr = dockerfilePath.empty() ? "<unset>" : dockerfilePath.c_str();
+-
+-	if (!refreshed)
+-		WLog_WARN(TAG, "Failed to refresh VDI broker configuration at %s; using defaults",
+-		         configPathStr);
+-
+-	WLog_INFO(TAG, "VDI broker configuration loaded");
+-	WLog_INFO(TAG, "  config_path   : %s", configPathStr);
+-	WLog_INFO(TAG, "  podman_image  : %s", podmanImage.c_str());
+-	WLog_INFO(TAG, "  dri_device    : %s", driDevice.c_str());
+-	WLog_INFO(TAG, "  home_path     : %s", homePath.c_str());
+-	WLog_INFO(TAG, "  shadow_path   : %s", shadowPath.c_str());
+-	WLog_INFO(TAG, "  group_path    : %s", groupPath.c_str());
+-	WLog_INFO(TAG, "  passwd_path   : %s", passwdPath.c_str());
+-	WLog_INFO(TAG, "  pam_path      : %s", pamPath.c_str());
+-	WLog_INFO(TAG, "  pam_service   : %s", pamService.c_str());
+-	WLog_INFO(TAG, "  dockerfile    : %s", dockerfileStr);
+-}
+ 
+ 
+ struct vdi_custom_data
+@@ -669,7 +671,6 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
+ 	const proxyConfig* initialConfig = static_cast<const proxyConfig*>(userdata);
+ 	vdi_initialize_configuration(initialConfig);
+ 	const bool refreshed = vdi::Config().Refresh();
+-	vdi_log_configuration_state(refreshed);
+ 
+ 	plugin.name = plugin_name;
+ 	plugin.description = plugin_desc;
+@@ -716,4 +717,5 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
+ 	plugin.userdata = userdata;
+ 
+ 	return plugins_manager->RegisterPlugin(plugins_manager, &plugin);
++	vdi_log_configuration_state(refreshed);
+ }
+-- 
+2.51.0
+
+
+From e803743011709624154e935e01003b553abb1604 Mon Sep 17 00:00:00 2001
+From: Marco Martini <marco.martini.7@studenti.unipd.it>
+Date: Thu, 25 Sep 2025 15:04:11 +0200
+Subject: [PATCH 16/17] Removed useless demo leftovers
+
+---
+ .../proxy/modules/vdi_broker/vdi_broker.cpp   | 328 ------------------
+ .../vdi_broker/vdi_container_manager.cpp      |   3 +-
+ 2 files changed, 1 insertion(+), 330 deletions(-)
+
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index 3309b2555..298d2543d 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -162,16 +162,6 @@ static BOOL vdi_client_init_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 	return TRUE;
+ }
+ 
+-static BOOL vdi_client_uninit_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
+-{
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(custom);
+-
+-	WLog_INFO(TAG, "called");
+-	return TRUE;
+-}
+-
+ // Structure to hold the password
+ struct pam_conv_data {
+     const char* password;
+@@ -319,7 +309,6 @@ static BOOL vdi_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 
+ 	std::string user = (hashPos == std::string::npos) ? username : username.substr(0, hashPos);
+ 
+-	//WLog_INFO(TAG, "USING CODEC NSC");
+ 	if(!vdi_auth(user, password)) {
+ 		return FALSE;
+ 	}
+@@ -337,170 +326,6 @@ static BOOL vdi_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 	return TRUE;
+ }
+ 
+-static BOOL vdi_client_post_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
+-{
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(custom);
+-
+-	WLog_INFO(TAG, "called");
+-
+-
+-	return TRUE;
+-}
+-
+-static BOOL vdi_client_post_disconnect(proxyPlugin* plugin, proxyData* pdata, void* custom)
+-{
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(custom);
+-
+-	WLog_INFO(TAG, "called");
+-	return TRUE;
+-}
+-
+-static BOOL vdi_client_x509_certificate(proxyPlugin* plugin, proxyData* pdata, void* custom)
+-{
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(custom);
+-
+-	WLog_INFO(TAG, "called");
+-	return TRUE;
+-}
+-
+-static BOOL vdi_client_login_failure(proxyPlugin* plugin, proxyData* pdata, void* custom)
+-{
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(custom);
+-
+-	WLog_INFO(TAG, "called");
+-	return TRUE;
+-}
+-
+-static BOOL vdi_client_end_paint(proxyPlugin* plugin, proxyData* pdata, void* custom)
+-{
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(custom);
+-
+-	WLog_INFO(TAG, "called");
+-	return TRUE;
+-}
+-
+-static BOOL vdi_client_redirect(proxyPlugin* plugin, proxyData* pdata, void* custom)
+-{
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(custom);
+-
+-	WLog_INFO(TAG, "called");
+-	return TRUE;
+-}
+-
+-static BOOL vdi_server_post_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
+-{
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(pdata->pc);
+-	WINPR_ASSERT(custom);
+-
+-
+-
+-	WLog_INFO(TAG, "called");
+-	return TRUE;
+-}
+-
+-static BOOL vdi_server_peer_activate(proxyPlugin* plugin, proxyData* pdata, void* custom)
+-{
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(custom);
+-
+-	WLog_INFO(TAG, "called");
+-	return TRUE;
+-}
+-
+-static BOOL vdi_server_channels_init(proxyPlugin* plugin, proxyData* pdata, void* custom)
+-{
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(custom);
+-
+-	WLog_INFO(TAG, "called");
+-	return TRUE;
+-}
+-
+-static BOOL vdi_server_channels_free(proxyPlugin* plugin, proxyData* pdata, void* custom)
+-{
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(custom);
+-
+-	WLog_INFO(TAG, "called");
+-	return TRUE;
+-}
+-
+-static BOOL vdi_server_session_end(proxyPlugin* plugin, proxyData* pdata, void* custom)
+-{
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(custom);
+-
+-	WLog_INFO(TAG, "called");
+-	return TRUE;
+-}
+-
+-static BOOL vdi_filter_keyboard_event(proxyPlugin* plugin, proxyData* pdata, void* param)
+-{
+-	proxyPluginsManager* mgr = nullptr;
+-	auto event_data = static_cast<const proxyKeyboardEventInfo*>(param);
+-
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(event_data);
+-
+-	mgr = plugin->mgr;
+-	WINPR_ASSERT(mgr);
+-
+-	if (event_data == nullptr)
+-		return FALSE;
+-
+-	if (event_data->rdp_scan_code == RDP_SCANCODE_KEY_B)
+-	{
+-		/* user typed 'B', that means bye :) */
+-		std::cout << "C++ vdi plugin: aborting connection" << std::endl;
+-		mgr->AbortConnect(mgr, pdata);
+-	}
+-
+-	return TRUE;
+-}
+-
+-static BOOL vdi_filter_unicode_event(proxyPlugin* plugin, proxyData* pdata, void* param)
+-{
+-	proxyPluginsManager* mgr = nullptr;
+-	auto event_data = static_cast<const proxyUnicodeEventInfo*>(param);
+-
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(event_data);
+-
+-	mgr = plugin->mgr;
+-	WINPR_ASSERT(mgr);
+-
+-	if (event_data == nullptr)
+-		return FALSE;
+-
+-	if (event_data->code == 'b')
+-	{
+-		/* user typed 'B', that means bye :) */
+-		std::cout << "C++ vdi plugin: aborting connection" << std::endl;
+-		mgr->AbortConnect(mgr, pdata);
+-	}
+-
+-	return TRUE;
+-}
+ 
+ void printDelayBetweenCalls() {
+     // Declare a static variable to hold the last time the function was called
+@@ -527,133 +352,6 @@ void printDelayBetweenCalls() {
+     lastTime = currentTime;
+ }
+ 
+-
+-static BOOL vdi_mouse_event(proxyPlugin* plugin, proxyData* pdata, void* param)
+-{
+-	auto event_data = static_cast<const proxyMouseEventInfo*>(param);
+-
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(event_data);
+-
+-	WLog_INFO(TAG, "called %p", event_data);
+-	printDelayBetweenCalls();
+-	return TRUE;
+-}
+-
+-static BOOL vdi_mouse_ex_event(proxyPlugin* plugin, proxyData* pdata, void* param)
+-{
+-	auto event_data = static_cast<const proxyMouseExEventInfo*>(param);
+-
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(event_data);
+-
+-	WLog_INFO(TAG, "called %p", event_data);
+-	return TRUE;
+-}
+-
+-static BOOL vdi_client_channel_data(proxyPlugin* plugin, proxyData* pdata, void* param)
+-{
+-	const auto* channel = static_cast<const proxyChannelDataEventInfo*>(param);
+-
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(channel);
+-
+-	WLog_INFO(TAG, "%s [0x%04" PRIx16 "] got %" PRIuz, channel->channel_name, channel->channel_id,
+-	          channel->data_len);
+-	return TRUE;
+-}
+-
+-static BOOL vdi_server_channel_data(proxyPlugin* plugin, proxyData* pdata, void* param)
+-{
+-	const auto* channel = static_cast<const proxyChannelDataEventInfo*>(param);
+-
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(channel);
+-
+-	WLog_WARN(TAG, "%s [0x%04" PRIx16 "] got %" PRIuz, channel->channel_name, channel->channel_id,
+-	          channel->data_len);
+-	return TRUE;
+-}
+-
+-static BOOL vdi_dynamic_channel_create(proxyPlugin* plugin, proxyData* pdata, void* param)
+-{
+-	const auto* channel = static_cast<const proxyChannelDataEventInfo*>(param);
+-
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(channel);
+-
+-	WLog_WARN(TAG, "%s [0x%04" PRIx16 "]", channel->channel_name, channel->channel_id);
+-	return TRUE;
+-}
+-
+-static BOOL vdi_server_fetch_target_addr(proxyPlugin* plugin, proxyData* pdata, void* param)
+-{
+-	auto event_data = static_cast<const proxyFetchTargetEventInfo*>(param);
+-
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(event_data);
+-
+-	WLog_INFO(TAG, "called %p", event_data);
+-
+-	return TRUE;
+-}
+-
+-static BOOL vdi_server_peer_logon(proxyPlugin* plugin, proxyData* pdata, void* param)
+-{
+-	auto info = static_cast<const proxyServerPeerLogon*>(param);
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(info);
+-	WINPR_ASSERT(info->identity);
+-
+-
+-
+-	WLog_INFO(TAG, "%d", info->automatic);
+-	return TRUE;
+-}
+-
+-static BOOL vdi_dyn_channel_intercept_list(proxyPlugin* plugin, proxyData* pdata, void* arg)
+-{
+-	auto data = static_cast<proxyChannelToInterceptData*>(arg);
+-
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(data);
+-
+-	WLog_INFO(TAG, "%s: %p", __func__, data);
+-	return TRUE;
+-}
+-
+-static BOOL vdi_static_channel_intercept_list(proxyPlugin* plugin, proxyData* pdata, void* arg)
+-{
+-	auto data = static_cast<proxyChannelToInterceptData*>(arg);
+-
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(data);
+-
+-	WLog_INFO(TAG, "%s: %p", __func__, data);
+-	return TRUE;
+-}
+-
+-static BOOL vdi_dyn_channel_intercept(proxyPlugin* plugin, proxyData* pdata, void* arg)
+-{
+-	auto data = static_cast<proxyDynChannelInterceptData*>(arg);
+-
+-	WINPR_ASSERT(plugin);
+-	WINPR_ASSERT(pdata);
+-	WINPR_ASSERT(data);
+-
+-	WLog_INFO(TAG, "%s: %p", __func__, data);
+-	return TRUE;
+-}
+-
+ #ifdef __cplusplus
+ extern "C"
+ {
+@@ -676,33 +374,7 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
+ 	plugin.description = plugin_desc;
+ 	plugin.PluginUnload = vdi_plugin_unload;
+ 	plugin.ClientInitConnect = vdi_client_init_connect;
+-	//plugin.ClientUninitConnect = vdi_client_uninit_connect;
+ 	plugin.ClientPreConnect = vdi_client_pre_connect;
+-	plugin.ServerSessionStarted = vdi_server_session_started;
+-	//plugin.ClientPostConnect = vdi_client_post_connect;
+-	//plugin.ClientPostDisconnect = vdi_client_post_disconnect;
+-	//plugin.ClientX509Certificate = vdi_client_x509_certificate;
+-	//plugin.ClientLoginFailure = vdi_client_login_failure;
+-	//plugin.ClientEndPaint = vdi_client_end_paint;
+-	//plugin.ClientRedirect = vdi_client_redirect;
+-	//plugin.ServerPostConnect = vdi_server_post_connect;
+-	//plugin.ServerPeerActivate = vdi_server_peer_activate;
+-	//plugin.ServerChannelsInit = vdi_server_channels_init;
+-	//plugin.ServerChannelsFree = vdi_server_channels_free;
+-	//plugin.ServerSessionEnd = vdi_server_session_end;
+-	//plugin.KeyboardEvent = vdi_filter_keyboard_event;
+-	//plugin.UnicodeEvent = vdi_filter_unicode_event;
+-	//plugin.MouseEvent = vdi_mouse_event;
+-	//plugin.MouseExEvent = vdi_mouse_ex_event;
+-	//plugin.ClientChannelData = vdi_client_channel_data;
+-	//plugin.ServerChannelData = vdi_server_channel_data;
+-	//plugin.DynamicChannelCreate = vdi_dynamic_channel_create;
+-	//plugin.ServerFetchTargetAddr = vdi_server_fetch_target_addr;
+-	//plugin.ServerPeerLogon = vdi_server_peer_logon;
+-
+-	plugin.StaticChannelToIntercept = vdi_static_channel_intercept_list;
+-	plugin.DynChannelToIntercept = vdi_dyn_channel_intercept_list;
+-	plugin.DynChannelIntercept = vdi_dyn_channel_intercept;
+ 
+ 	plugin.userdata = userdata;
+ 
+diff --git a/server/proxy/modules/vdi_broker/vdi_container_manager.cpp b/server/proxy/modules/vdi_broker/vdi_container_manager.cpp
+index 897b03e58..1d94359cb 100644
+--- a/server/proxy/modules/vdi_broker/vdi_container_manager.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_container_manager.cpp
+@@ -216,11 +216,10 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
+         devices.append(dri);
+     }
+     root["devices"] = devices;
++    root["systemd"] = "always";
+ 
+     Json::Value env(Json::objectValue);
+-    env["XDG_RUNTIME_DIR"] = "/tmp";
+     env["GSK_RENDERER"] = "ngl";
+-    env["VDI_USER"] = username;
+     root["env"] = env;
+ 
+     Json::Value mounts(Json::arrayValue);
+-- 
+2.51.0
+
+
+From 74132bfa4e12d9b15cc58239c136544168d91636 Mon Sep 17 00:00:00 2001
+From: Marco Martini <marco.martini.7@studenti.unipd.it>
+Date: Thu, 25 Sep 2025 15:59:38 +0200
+Subject: [PATCH 17/17] Refactored config, added multi-session, added
+ configurable rdp auth for container connection
+
+---
+ .../proxy/modules/vdi_broker/CMakeLists.txt   |   1 +
+ .../proxy/modules/vdi_broker/vdi_broker.cpp   | 121 ++++--
+ .../modules/vdi_broker/vdi_broker.sample.yaml |   5 +
+ .../modules/vdi_broker/vdi_broker_config.cpp  | 349 ++++++++++++++++++
+ .../modules/vdi_broker/vdi_broker_config.h    |  67 ++++
+ .../vdi_broker/vdi_container_manager.cpp      | 297 +--------------
+ .../vdi_broker/vdi_container_manager.h        |  54 ---
+ 7 files changed, 515 insertions(+), 379 deletions(-)
+ create mode 100644 server/proxy/modules/vdi_broker/vdi_broker_config.cpp
+ create mode 100644 server/proxy/modules/vdi_broker/vdi_broker_config.h
+
+diff --git a/server/proxy/modules/vdi_broker/CMakeLists.txt b/server/proxy/modules/vdi_broker/CMakeLists.txt
+index abe73ce40..966bd6782 100644
+--- a/server/proxy/modules/vdi_broker/CMakeLists.txt
++++ b/server/proxy/modules/vdi_broker/CMakeLists.txt
+@@ -60,6 +60,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ 
+ set(SRCS
+ 	vdi_broker.cpp
++	vdi_broker_config.cpp
+ 	vdi_container_manager.cpp
+ )
+ AddTargetWithResourceFile(${PROJECT_NAME} FALSE "${PROJECT_VERSION}" SRCS FALSE)
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index 298d2543d..d8e1e2246 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -23,6 +23,7 @@
+ 
+ #include <iostream>
+ #include <string>
++#include <cctype>
+ #include <unistd.h>
+ #include <security/pam_appl.h>
+ #include <security/pam_misc.h>
+@@ -33,6 +34,7 @@
+ #include <freerdp/server/proxy/proxy_modules_api.h>
+ #include <sys/time.h>
+ 
++#include "vdi_broker_config.h"
+ #include "vdi_container_manager.h"
+ 
+ #define TAG MODULE_TAG("vdi_broker")
+@@ -42,6 +44,31 @@ static constexpr char plugin_desc[] =
+ static constexpr char kConfigPathKey[] = "config_path";
+ static constexpr char kDefaultPamServiceName[] = "vdi-broker";
+ 
++namespace
++{
++std::string build_container_prefix(const std::string& suffix)
++{
++    if (suffix.empty())
++        return "vdi-";
++
++    std::string sanitized;
++    sanitized.reserve(suffix.size());
++    for (const char ch : suffix)
++    {
++        const unsigned char uch = static_cast<unsigned char>(ch);
++        if (std::isalnum(uch) || ch == '_' || ch == '-')
++            sanitized.push_back(static_cast<char>(std::tolower(uch)));
++        else
++            sanitized.push_back('_');
++    }
++
++    if (sanitized.empty())
++        return "vdi-";
++
++    return std::string("vdi_") + sanitized + "-";
++}
++} // namespace
++
+ 
+ // Set Nla Security to login
+ static BOOL vdi_server_session_started(proxyPlugin* plugin, proxyData* pdata, void* custom) {
+@@ -54,7 +81,7 @@ static BOOL vdi_server_session_started(proxyPlugin* plugin, proxyData* pdata, vo
+ }
+ 
+ 
+-static void vdi_log_configuration_state(bool refreshed)
++void vdi_log_configuration_state(bool refreshed)
+ {
+ 	auto& configuration = vdi::Config();
+ 	const std::string configPath = configuration.ConfigPath();
+@@ -67,9 +94,12 @@ static void vdi_log_configuration_state(bool refreshed)
+ 	const std::string pamPath = configuration.PamPath();
+ 	const std::string dockerfilePath = configuration.DockerfilePath();
+ 	const std::string pamService = configuration.PamServiceName();
++	const std::string rdpUsername = configuration.RdpUsername();
++	const std::string rdpPassword = configuration.RdpPassword();
+ 
+ 	const char* configPathStr = configPath.empty() ? "<defaults>" : configPath.c_str();
+ 	const char* dockerfileStr = dockerfilePath.empty() ? "<unset>" : dockerfilePath.c_str();
++	const char* rdpPasswordStr = rdpPassword.empty() ? "<unset>" : "<redacted>";
+ 
+ 	if (!refreshed)
+ 		WLog_WARN(TAG, "Failed to refresh VDI broker configuration at %s; using defaults",
+@@ -86,6 +116,26 @@ static void vdi_log_configuration_state(bool refreshed)
+ 	WLog_INFO(TAG, "  pam_path      : %s", pamPath.c_str());
+ 	WLog_INFO(TAG, "  pam_service   : %s", pamService.c_str());
+ 	WLog_INFO(TAG, "  dockerfile    : %s", dockerfileStr);
++	WLog_INFO(TAG, "  rdp_username  : %s", rdpUsername.c_str());
++	WLog_INFO(TAG, "  rdp_password  : %s", rdpPasswordStr);
++}
++
++void vdi_log_refresh_outcome(bool refreshed, bool reloaded)
++{
++	if (reloaded)
++	{
++		vdi_log_configuration_state(refreshed);
++		return;
++	}
++
++	if (!refreshed)
++	{
++		auto& configuration = vdi::Config();
++		const std::string configPath = configuration.ConfigPath();
++		const char* configPathStr = configPath.empty() ? "<defaults>" : configPath.c_str();
++		WLog_WARN(TAG, "Failed to refresh VDI broker configuration at %s; using defaults",
++		         configPathStr);
++	}
+ }
+ 
+ static void vdi_refresh_configuration(proxyData* pdata)
+@@ -101,17 +151,16 @@ static void vdi_refresh_configuration(proxyData* pdata)
+ 			const bool changed = currentPath != path;
+ 			configuration.SetConfigPath(path);
+ 			const bool refreshed = configuration.Refresh();
+-			if (!refreshed)
+-				WLog_WARN(TAG, "Failed to refresh VDI broker configuration at %s", path);
+-			else if (changed)
+-				vdi_log_configuration_state(refreshed);
++			const bool reloaded = configuration.ConsumeReloadedFlag();
++			if (changed || reloaded || !refreshed)
++				vdi_log_refresh_outcome(refreshed, reloaded);
+ 			return;
+ 		}
+ 	}
+ 
+ 	const bool refreshed = configuration.Refresh();
+-	if (!refreshed)
+-		WLog_WARN(TAG, "Failed to refresh VDI broker configuration; using defaults");
++	const bool reloaded = configuration.ConsumeReloadedFlag();
++	vdi_log_refresh_outcome(refreshed, reloaded);
+ }
+ 
+ static void vdi_initialize_configuration(const proxyConfig* config)
+@@ -225,11 +274,12 @@ bool vdi_auth(const std::string& username, const std::string& password) {
+     conv.conv = pam_conversation;
+     conv.appdata_ptr = &conv_data;
+ 
+-    auto& configuration = vdi::Config();
+-    if (!configuration.Refresh())
+-        WLog_WARN(TAG, "Using default PAM configuration; reload failed");
++	auto& configuration = vdi::Config();
++	const bool refreshedConfig = configuration.Refresh();
++	const bool reloadedConfig = configuration.ConsumeReloadedFlag();
++	vdi_log_refresh_outcome(refreshedConfig, reloadedConfig);
+ 
+-    std::string pamService = configuration.PamServiceName();
++	std::string pamService = configuration.PamServiceName();
+     if (pamService.empty())
+         pamService.assign(kDefaultPamServiceName);
+ 
+@@ -290,22 +340,10 @@ static BOOL vdi_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 
+ 	WLog_INFO(TAG, "Username full: %s", username.c_str());
+ 
+-	//Set Default Codec
+-	//freerdp_settings_set_bool(settings, FreeRDP_NSCodec, true);
+-	// Otherwise find the position of '#', then set RFX if found
+ 	auto hashPos = username.find('#');
+-
+-	if (hashPos != std::string::npos) { // Check if '#' is present
+-		// Extract the part after '#'
+-		auto codec = username.substr(hashPos + 1);
+-
+-		if (!codec.empty()) {
+-			if(codec.compare("rfx") == 0) {
+-				freerdp_settings_set_bool(settings, FreeRDP_RemoteFxCodec, true);
+-				WLog_INFO(TAG, "USING CODEC RFX");
+-			}
+-		}
+-	}
++	std::string containerSuffix;
++	if ((hashPos != std::string::npos) && (hashPos + 1 < username.size()))
++		containerSuffix = username.substr(hashPos + 1);
+ 
+ 	std::string user = (hashPos == std::string::npos) ? username : username.substr(0, hashPos);
+ 
+@@ -313,13 +351,24 @@ static BOOL vdi_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 		return FALSE;
+ 	}
+ 	WLog_INFO(TAG, "Username: %s", username.c_str());
+-	std::string ip = vdi::ManageContainer(user);
+-	if(!ip.empty()) {
++	const std::string containerPrefix = build_container_prefix(containerSuffix);
++	const std::string requestedContainer = containerPrefix + user;
++	WLog_INFO(TAG, "Requesting container: %s", requestedContainer.c_str());
++	std::string ip = vdi::ManageContainer(user, containerPrefix);
++	if (!ip.empty())
++	{
+ 		WLog_INFO(TAG, "Setting target address: %s", ip.c_str());
+-		//Hardcoded password for now, set the same for grd in container
++		auto& configuration = vdi::Config();
++		const bool refreshedConfig = configuration.Refresh();
++		const bool reloadedConfig = configuration.ConsumeReloadedFlag();
++		vdi_log_refresh_outcome(refreshedConfig, reloadedConfig);
++		const std::string rdpUsername =
++		    configuration.RdpUsername().empty() ? "rdp" : configuration.RdpUsername();
++		const std::string rdpPassword =
++		    configuration.RdpPassword().empty() ? "rdp" : configuration.RdpPassword();
+ 		freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip.c_str());
+-		freerdp_settings_set_string(settings, FreeRDP_Username, "rdp");
+-		freerdp_settings_set_string(settings, FreeRDP_Password, "rdp");
++		freerdp_settings_set_string(settings, FreeRDP_Username, rdpUsername.c_str());
++		freerdp_settings_set_string(settings, FreeRDP_Password, rdpPassword.c_str());
+ 		freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
+ 	}
+ 
+@@ -368,7 +417,9 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
+ 
+ 	const proxyConfig* initialConfig = static_cast<const proxyConfig*>(userdata);
+ 	vdi_initialize_configuration(initialConfig);
+-	const bool refreshed = vdi::Config().Refresh();
++	auto& configuration = vdi::Config();
++	const bool refreshed = configuration.Refresh();
++	const bool reloaded = configuration.ConsumeReloadedFlag();
+ 
+ 	plugin.name = plugin_name;
+ 	plugin.description = plugin_desc;
+@@ -376,8 +427,6 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
+ 	plugin.ClientInitConnect = vdi_client_init_connect;
+ 	plugin.ClientPreConnect = vdi_client_pre_connect;
+ 
+-	plugin.userdata = userdata;
+-
+ 	custom = new (struct vdi_custom_data);
+ 	if (!custom)
+ 		return FALSE;
+@@ -386,8 +435,8 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
+ 	custom->somesetting = 42;
+ 
+ 	plugin.custom = custom;
+-	plugin.userdata = userdata;
++
++	vdi_log_refresh_outcome(refreshed, reloaded);
+ 
+ 	return plugins_manager->RegisterPlugin(plugins_manager, &plugin);
+-	vdi_log_configuration_state(refreshed);
+ }
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.sample.yaml b/server/proxy/modules/vdi_broker/vdi_broker.sample.yaml
+index db42a4cad..09d9c26d9 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.sample.yaml
++++ b/server/proxy/modules/vdi_broker/vdi_broker.sample.yaml
+@@ -18,3 +18,8 @@ pam_path: /etc/pam.d/vdi-broker
+ # Optional path to a Dockerfile that can be used to build the podman image
+ # when it is not present locally.
+ dockerfile_path: /path/to/Dockerfile
++
++# Credentials used by the proxy to connect to the GNOME Remote Desktop service
++# inside the Podman container. Defaults fallback to "rdp" when omitted.
++rdp_username: rdp
++rdp_password: rdp
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker_config.cpp b/server/proxy/modules/vdi_broker/vdi_broker_config.cpp
+new file mode 100644
+index 000000000..88e5a6a0f
+--- /dev/null
++++ b/server/proxy/modules/vdi_broker/vdi_broker_config.cpp
+@@ -0,0 +1,349 @@
++#include "vdi_broker_config.h"
++
++#include <algorithm>
++#include <cctype>
++#include <cstdlib>
++#include <filesystem>
++#include <fstream>
++#include <iostream>
++#include <sstream>
++
++namespace
++{
++constexpr char kDefaultConfigPath[] = "/etc/vdi/vdi_broker.yaml";
++constexpr char kEnvConfigPath[] = "VDI_BROKER_CONFIG";
++constexpr char kDefaultPamService[] = "vdi-broker";
++} // namespace
++
++namespace vdi
++{
++VdiBrokerConfig& VdiBrokerConfig::Instance()
++{
++    static VdiBrokerConfig instance;
++    return instance;
++}
++
++VdiBrokerConfig::VdiBrokerConfig()
++    : configPath_(), podmanImage_(), driDevice_(), homePath_(), shadowPath_(), groupPath_(),
++      passwdPath_(), pamPath_(), pamServiceName_(kDefaultPamService), dockerfilePath_(),
++      rdpUsername_(), rdpPassword_(), hasLastWrite_(false), loaded_(false), reloaded_(false)
++{
++    const char* env = std::getenv(kEnvConfigPath);
++    if (env && *env)
++        configPath_ = env;
++    else
++        configPath_ = kDefaultConfigPath;
++
++    ApplyDefaultsUnlocked();
++}
++
++void VdiBrokerConfig::SetConfigPath(const std::string& path)
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (path.empty() || path == configPath_)
++        return;
++
++    configPath_ = path;
++    hasLastWrite_ = false;
++    loaded_ = false;
++}
++
++std::string VdiBrokerConfig::ConfigPath() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return configPath_;
++}
++
++bool VdiBrokerConfig::Refresh()
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    bool reloaded = false;
++
++    if (!loaded_)
++    {
++        ApplyDefaultsUnlocked();
++        reloaded = true;
++    }
++
++    if (configPath_.empty())
++    {
++        loaded_ = true;
++        hasLastWrite_ = false;
++        reloaded_ = reloaded;
++        return true;
++    }
++
++    std::error_code ec;
++    const auto writeTime = std::filesystem::last_write_time(configPath_, ec);
++    if (ec)
++    {
++        if (!loaded_)
++        {
++            ApplyDefaultsUnlocked();
++            reloaded = true;
++        }
++        hasLastWrite_ = false;
++        reloaded_ = reloaded;
++        return false;
++    }
++
++    if (!hasLastWrite_ || writeTime != lastWrite_ || !loaded_)
++    {
++        if (!LoadFromFileUnlocked(configPath_))
++        {
++            ApplyDefaultsUnlocked();
++            hasLastWrite_ = false;
++            loaded_ = true;
++            reloaded_ = true;
++            return false;
++        }
++        lastWrite_ = writeTime;
++        hasLastWrite_ = true;
++        loaded_ = true;
++        reloaded = true;
++    }
++
++    reloaded_ = reloaded;
++    return true;
++}
++
++std::string VdiBrokerConfig::PodmanImage() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return podmanImage_;
++}
++
++std::string VdiBrokerConfig::DriDevice() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return driDevice_;
++}
++
++std::string VdiBrokerConfig::HomePath() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return homePath_;
++}
++
++std::string VdiBrokerConfig::ShadowPath() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return shadowPath_;
++}
++
++std::string VdiBrokerConfig::GroupPath() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return groupPath_;
++}
++
++std::string VdiBrokerConfig::PasswdPath() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return passwdPath_;
++}
++
++std::string VdiBrokerConfig::PamPath() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return pamPath_;
++}
++
++std::string VdiBrokerConfig::PamServiceName() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return pamServiceName_;
++}
++
++std::string VdiBrokerConfig::DockerfilePath() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return dockerfilePath_;
++}
++
++std::string VdiBrokerConfig::RdpUsername() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return rdpUsername_;
++}
++
++std::string VdiBrokerConfig::RdpPassword() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return rdpPassword_;
++}
++
++bool VdiBrokerConfig::ConsumeReloadedFlag()
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    const bool value = reloaded_;
++    reloaded_ = false;
++    return value;
++}
++
++void VdiBrokerConfig::ApplyDefaultsUnlocked()
++{
++    podmanImage_ = "vdi-gnome";
++    driDevice_ = "/dev/dri/renderD128";
++    homePath_ = "/home";
++    shadowPath_ = "/etc/shadow";
++    groupPath_ = "/etc/group";
++    passwdPath_ = "/etc/passwd";
++    pamPath_ = "/etc/pam.d/vdi-broker";
++    pamServiceName_ = ResolvePamService(pamPath_);
++    dockerfilePath_.clear();
++    rdpUsername_ = "rdp";
++    rdpPassword_ = "rdp";
++}
++
++bool VdiBrokerConfig::LoadFromFileUnlocked(const std::string& path)
++{
++    std::ifstream stream(path);
++    if (!stream.is_open())
++    {
++        std::cerr << "Unable to open configuration file: " << path << std::endl;
++        return false;
++    }
++
++    std::stringstream buffer;
++    buffer << stream.rdbuf();
++
++    ApplyDefaultsUnlocked();
++
++    if (!ParseYamlContentUnlocked(buffer.str()))
++        return false;
++
++    return true;
++}
++
++bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
++{
++    std::istringstream stream(content);
++    std::string line;
++
++    while (std::getline(stream, line))
++    {
++        std::string trimmed = Trim(line);
++        if (trimmed.empty() || trimmed[0] == '#')
++            continue;
++
++        const auto pos = trimmed.find(':');
++        if (pos == std::string::npos)
++            continue;
++
++        std::string key = Trim(trimmed.substr(0, pos));
++        std::string value = Trim(trimmed.substr(pos + 1));
++
++        const auto comment = value.find('#');
++        if (comment != std::string::npos)
++            value = Trim(value.substr(0, comment));
++
++        value = StripQuotes(value);
++        const std::string normalized = ToLower(key);
++
++        if (normalized == "podman_image")
++        {
++            if (!value.empty())
++                podmanImage_ = value;
++        }
++        else if (normalized == "dri_device" || normalized == "dri_render_device")
++        {
++            if (!value.empty())
++                driDevice_ = value;
++        }
++        else if (normalized == "home_path" || normalized == "home_directory_path" ||
++                 normalized == "home_dir")
++        {
++            if (!value.empty())
++                homePath_ = value;
++        }
++        else if (normalized == "shadow_path")
++        {
++            if (!value.empty())
++                shadowPath_ = value;
++        }
++        else if (normalized == "group_path")
++        {
++            if (!value.empty())
++                groupPath_ = value;
++        }
++        else if (normalized == "passwd_path" || normalized == "password_path")
++        {
++            if (!value.empty())
++                passwdPath_ = value;
++        }
++        else if (normalized == "pam_path" || normalized == "pam_config_path")
++        {
++            if (!value.empty())
++            {
++                pamPath_ = value;
++                pamServiceName_ = ResolvePamService(pamPath_);
++            }
++        }
++        else if (normalized == "dockerfile_path")
++        {
++            dockerfilePath_ = value;
++        }
++        else if (normalized == "rdp_username")
++        {
++            if (!value.empty())
++                rdpUsername_ = value;
++        }
++        else if (normalized == "rdp_password")
++        {
++            if (!value.empty())
++                rdpPassword_ = value;
++        }
++    }
++
++    pamServiceName_ = ResolvePamService(pamPath_);
++    return true;
++}
++
++std::string VdiBrokerConfig::ResolvePamService(const std::string& pamPath) const
++{
++    if (pamPath.empty())
++        return kDefaultPamService;
++
++    std::filesystem::path path(pamPath);
++    const std::string name = path.filename().string();
++    if (name.empty())
++        return kDefaultPamService;
++    return name;
++}
++
++std::string VdiBrokerConfig::Trim(const std::string& value)
++{
++    const auto first = value.find_first_not_of(" \t\r\n");
++    if (first == std::string::npos)
++        return {};
++    const auto last = value.find_last_not_of(" \t\r\n");
++    return value.substr(first, last - first + 1);
++}
++
++std::string VdiBrokerConfig::StripQuotes(const std::string& value)
++{
++    if (value.size() >= 2)
++    {
++        const char front = value.front();
++        const char back = value.back();
++        if ((front == '"' && back == '"') || (front == '\'' && back == '\''))
++            return value.substr(1, value.size() - 2);
++    }
++    return value;
++}
++
++std::string VdiBrokerConfig::ToLower(std::string value)
++{
++    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
++        return static_cast<char>(std::tolower(c));
++    });
++    return value;
++}
++
++VdiBrokerConfig& Config()
++{
++    return VdiBrokerConfig::Instance();
++}
++
++} // namespace vdi
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker_config.h b/server/proxy/modules/vdi_broker/vdi_broker_config.h
+new file mode 100644
+index 000000000..cf8496a2b
+--- /dev/null
++++ b/server/proxy/modules/vdi_broker/vdi_broker_config.h
+@@ -0,0 +1,67 @@
++#pragma once
++
++#include <filesystem>
++#include <mutex>
++#include <string>
++
++namespace vdi
++{
++class VdiBrokerConfig
++{
++public:
++    static VdiBrokerConfig& Instance();
++
++    void SetConfigPath(const std::string& path);
++    std::string ConfigPath() const;
++
++    bool Refresh();
++    bool ConsumeReloadedFlag();
++
++    std::string PodmanImage() const;
++    std::string DriDevice() const;
++    std::string HomePath() const;
++    std::string ShadowPath() const;
++    std::string GroupPath() const;
++    std::string PasswdPath() const;
++    std::string PamPath() const;
++    std::string PamServiceName() const;
++    std::string DockerfilePath() const;
++    std::string RdpUsername() const;
++    std::string RdpPassword() const;
++
++private:
++    VdiBrokerConfig();
++    VdiBrokerConfig(const VdiBrokerConfig&) = delete;
++    VdiBrokerConfig& operator=(const VdiBrokerConfig&) = delete;
++
++    void ApplyDefaultsUnlocked();
++    bool LoadFromFileUnlocked(const std::string& path);
++    bool ParseYamlContentUnlocked(const std::string& content);
++    std::string ResolvePamService(const std::string& pamPath) const;
++
++    static std::string Trim(const std::string& value);
++    static std::string StripQuotes(const std::string& value);
++    static std::string ToLower(std::string value);
++
++    mutable std::mutex mutex_;
++    std::string configPath_;
++    std::string podmanImage_;
++    std::string driDevice_;
++    std::string homePath_;
++    std::string shadowPath_;
++    std::string groupPath_;
++    std::string passwdPath_;
++    std::string pamPath_;
++    std::string pamServiceName_;
++    std::string dockerfilePath_;
++    std::string rdpUsername_;
++    std::string rdpPassword_;
++    std::filesystem::file_time_type lastWrite_;
++    bool hasLastWrite_;
++    bool loaded_;
++    bool reloaded_;
++};
++
++VdiBrokerConfig& Config();
++
++} // namespace vdi
+diff --git a/server/proxy/modules/vdi_broker/vdi_container_manager.cpp b/server/proxy/modules/vdi_broker/vdi_container_manager.cpp
+index 1d94359cb..ac7b3ac30 100644
+--- a/server/proxy/modules/vdi_broker/vdi_container_manager.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_container_manager.cpp
+@@ -1,5 +1,9 @@
+ #include "vdi_container_manager.h"
+ 
++#include "vdi_broker_config.h"
++
++void vdi_log_refresh_outcome(bool refreshed, bool reloaded);
++
+ #include <curl/curl.h>
+ #include <json/json.h>
+ 
+@@ -16,9 +20,6 @@
+ 
+ namespace
+ {
+-constexpr char kDefaultConfigPath[] = "/etc/vdi/vdi_broker.yaml";
+-constexpr char kEnvConfigPath[] = "VDI_BROKER_CONFIG";
+-constexpr char kDefaultPamService[] = "vdi-broker";
+ constexpr char kPodmanSocket[] = "/var/run/podman/podman.sock";
+ const std::string kPodmanApiBase = "http://d/v5.3.0/libpod/containers/";
+ 
+@@ -393,296 +394,14 @@ std::string GetContainerIpInternal(const std::string& containerName)
+ 
+ namespace vdi
+ {
+-VdiBrokerConfig& VdiBrokerConfig::Instance()
+-{
+-    static VdiBrokerConfig instance;
+-    return instance;
+-}
+-
+-VdiBrokerConfig::VdiBrokerConfig()
+-    : configPath_(), podmanImage_(), driDevice_(), homePath_(), shadowPath_(), groupPath_(),
+-      passwdPath_(), pamPath_(), pamServiceName_(kDefaultPamService), dockerfilePath_(),
+-      hasLastWrite_(false), loaded_(false)
+-{
+-    const char* env = std::getenv(kEnvConfigPath);
+-    if (env && *env)
+-        configPath_ = env;
+-    else
+-        configPath_ = kDefaultConfigPath;
+-
+-    ApplyDefaultsUnlocked();
+-}
+-
+-void VdiBrokerConfig::SetConfigPath(const std::string& path)
+-{
+-    std::lock_guard<std::mutex> lock(mutex_);
+-    if (path.empty() || path == configPath_)
+-        return;
+-
+-    configPath_ = path;
+-    hasLastWrite_ = false;
+-    loaded_ = false;
+-}
+-
+-std::string VdiBrokerConfig::ConfigPath() const
+-{
+-    std::lock_guard<std::mutex> lock(mutex_);
+-    return configPath_;
+-}
+-
+-bool VdiBrokerConfig::Refresh()
+-{
+-    std::lock_guard<std::mutex> lock(mutex_);
+-
+-    if (!loaded_)
+-        ApplyDefaultsUnlocked();
+-
+-    if (configPath_.empty())
+-    {
+-        loaded_ = true;
+-        hasLastWrite_ = false;
+-        return true;
+-    }
+-
+-    std::error_code ec;
+-    const auto writeTime = std::filesystem::last_write_time(configPath_, ec);
+-    if (ec)
+-    {
+-        if (!loaded_)
+-            ApplyDefaultsUnlocked();
+-        hasLastWrite_ = false;
+-        return false;
+-    }
+-
+-    if (!hasLastWrite_ || writeTime != lastWrite_ || !loaded_)
+-    {
+-        if (!LoadFromFileUnlocked(configPath_))
+-        {
+-            ApplyDefaultsUnlocked();
+-            hasLastWrite_ = false;
+-            loaded_ = true;
+-            return false;
+-        }
+-        lastWrite_ = writeTime;
+-        hasLastWrite_ = true;
+-        loaded_ = true;
+-    }
+-
+-    return true;
+-}
+-
+-std::string VdiBrokerConfig::PodmanImage() const
+-{
+-    std::lock_guard<std::mutex> lock(mutex_);
+-    return podmanImage_;
+-}
+-
+-std::string VdiBrokerConfig::DriDevice() const
+-{
+-    std::lock_guard<std::mutex> lock(mutex_);
+-    return driDevice_;
+-}
+-
+-std::string VdiBrokerConfig::HomePath() const
+-{
+-    std::lock_guard<std::mutex> lock(mutex_);
+-    return homePath_;
+-}
+-
+-std::string VdiBrokerConfig::ShadowPath() const
+-{
+-    std::lock_guard<std::mutex> lock(mutex_);
+-    return shadowPath_;
+-}
+-
+-std::string VdiBrokerConfig::GroupPath() const
+-{
+-    std::lock_guard<std::mutex> lock(mutex_);
+-    return groupPath_;
+-}
+-
+-std::string VdiBrokerConfig::PasswdPath() const
+-{
+-    std::lock_guard<std::mutex> lock(mutex_);
+-    return passwdPath_;
+-}
+-
+-std::string VdiBrokerConfig::PamPath() const
+-{
+-    std::lock_guard<std::mutex> lock(mutex_);
+-    return pamPath_;
+-}
+-
+-std::string VdiBrokerConfig::PamServiceName() const
+-{
+-    std::lock_guard<std::mutex> lock(mutex_);
+-    return pamServiceName_;
+-}
+-
+-std::string VdiBrokerConfig::DockerfilePath() const
+-{
+-    std::lock_guard<std::mutex> lock(mutex_);
+-    return dockerfilePath_;
+-}
+-
+-void VdiBrokerConfig::ApplyDefaultsUnlocked()
+-{
+-    podmanImage_ = "vdi-gnome";
+-    driDevice_ = "/dev/dri/renderD128";
+-    homePath_ = "/home";
+-    shadowPath_ = "/etc/shadow";
+-    groupPath_ = "/etc/group";
+-    passwdPath_ = "/etc/passwd";
+-    pamPath_ = "/etc/pam.d/vdi-broker";
+-    pamServiceName_ = ResolvePamService(pamPath_);
+-    dockerfilePath_.clear();
+-}
+-
+-bool VdiBrokerConfig::LoadFromFileUnlocked(const std::string& path)
+-{
+-    std::ifstream stream(path);
+-    if (!stream.is_open())
+-    {
+-        std::cerr << "Unable to open configuration file: " << path << std::endl;
+-        return false;
+-    }
+-
+-    std::stringstream buffer;
+-    buffer << stream.rdbuf();
+-
+-    ApplyDefaultsUnlocked();
+-
+-    if (!ParseYamlContentUnlocked(buffer.str()))
+-        return false;
+-
+-    return true;
+-}
+-
+-bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
+-{
+-    std::istringstream stream(content);
+-    std::string line;
+-
+-    while (std::getline(stream, line))
+-    {
+-        std::string trimmed = Trim(line);
+-        if (trimmed.empty() || trimmed[0] == '#')
+-            continue;
+-
+-        const auto pos = trimmed.find(':');
+-        if (pos == std::string::npos)
+-            continue;
+-
+-        std::string key = Trim(trimmed.substr(0, pos));
+-        std::string value = Trim(trimmed.substr(pos + 1));
+-
+-        const auto comment = value.find('#');
+-        if (comment != std::string::npos)
+-            value = Trim(value.substr(0, comment));
+-
+-        value = StripQuotes(value);
+-        const std::string normalized = ToLower(key);
+-
+-        if (normalized == "podman_image")
+-        {
+-            if (!value.empty())
+-                podmanImage_ = value;
+-        }
+-        else if (normalized == "dri_device" || normalized == "dri_render_device")
+-        {
+-            if (!value.empty())
+-                driDevice_ = value;
+-        }
+-        else if (normalized == "home_path" || normalized == "home_directory_path" ||
+-                 normalized == "home_dir")
+-        {
+-            if (!value.empty())
+-                homePath_ = value;
+-        }
+-        else if (normalized == "shadow_path")
+-        {
+-            if (!value.empty())
+-                shadowPath_ = value;
+-        }
+-        else if (normalized == "group_path")
+-        {
+-            if (!value.empty())
+-                groupPath_ = value;
+-        }
+-        else if (normalized == "passwd_path" || normalized == "password_path")
+-        {
+-            if (!value.empty())
+-                passwdPath_ = value;
+-        }
+-        else if (normalized == "pam_path" || normalized == "pam_config_path")
+-        {
+-            if (!value.empty())
+-            {
+-                pamPath_ = value;
+-                pamServiceName_ = ResolvePamService(pamPath_);
+-            }
+-        }
+-        else if (normalized == "dockerfile_path")
+-        {
+-            dockerfilePath_ = value;
+-        }
+-    }
+-
+-    pamServiceName_ = ResolvePamService(pamPath_);
+-    return true;
+-}
+-
+-std::string VdiBrokerConfig::ResolvePamService(const std::string& pamPath) const
+-{
+-    if (pamPath.empty())
+-        return kDefaultPamService;
+-
+-    std::filesystem::path path(pamPath);
+-    const std::string name = path.filename().string();
+-    if (name.empty())
+-        return kDefaultPamService;
+-    return name;
+-}
+-
+-std::string VdiBrokerConfig::Trim(const std::string& value)
+-{
+-    const auto first = value.find_first_not_of(" \t\r\n");
+-    if (first == std::string::npos)
+-        return {};
+-    const auto last = value.find_last_not_of(" \t\r\n");
+-    return value.substr(first, last - first + 1);
+-}
+-
+-std::string VdiBrokerConfig::StripQuotes(const std::string& value)
+-{
+-    if (value.size() >= 2)
+-    {
+-        const char front = value.front();
+-        const char back = value.back();
+-        if ((front == '"' && back == '"') || (front == '\'' && back == '\''))
+-            return value.substr(1, value.size() - 2);
+-    }
+-    return value;
+-}
+-
+-std::string VdiBrokerConfig::ToLower(std::string value)
+-{
+-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+-        return static_cast<char>(std::tolower(c));
+-    });
+-    return value;
+-}
+-
+-VdiBrokerConfig& Config()
+-{
+-    return VdiBrokerConfig::Instance();
+-}
+ 
+ std::string ManageContainer(const std::string& username, const std::string& containerPrefix)
+ {
+     auto& configuration = Config();
+-    if (!configuration.Refresh())
+-        std::clog << "VDI broker configuration reload failed, using defaults" << std::endl;
++    const bool refreshed = configuration.Refresh();
++    const bool reloaded = configuration.ConsumeReloadedFlag();
++    if (reloaded || !refreshed)
++        vdi_log_refresh_outcome(refreshed, reloaded);
+ 
+     const std::string prefix = containerPrefix.empty() ? std::string("vdi-") : containerPrefix;
+     const std::string containerName = prefix + username;
+diff --git a/server/proxy/modules/vdi_broker/vdi_container_manager.h b/server/proxy/modules/vdi_broker/vdi_container_manager.h
+index 46e743dc6..1d26ed345 100644
+--- a/server/proxy/modules/vdi_broker/vdi_container_manager.h
++++ b/server/proxy/modules/vdi_broker/vdi_container_manager.h
+@@ -1,63 +1,9 @@
+ #pragma once
+ 
+-#include <filesystem>
+-#include <mutex>
+ #include <string>
+ 
+ namespace vdi
+ {
+-class VdiBrokerConfig
+-{
+-public:
+-    static VdiBrokerConfig& Instance();
+-
+-    void SetConfigPath(const std::string& path);
+-    std::string ConfigPath() const;
+-
+-    bool Refresh();
+-
+-    std::string PodmanImage() const;
+-    std::string DriDevice() const;
+-    std::string HomePath() const;
+-    std::string ShadowPath() const;
+-    std::string GroupPath() const;
+-    std::string PasswdPath() const;
+-    std::string PamPath() const;
+-    std::string PamServiceName() const;
+-    std::string DockerfilePath() const;
+-
+-private:
+-    VdiBrokerConfig();
+-    VdiBrokerConfig(const VdiBrokerConfig&) = delete;
+-    VdiBrokerConfig& operator=(const VdiBrokerConfig&) = delete;
+-
+-    void ApplyDefaultsUnlocked();
+-    bool LoadFromFileUnlocked(const std::string& path);
+-    bool ParseYamlContentUnlocked(const std::string& content);
+-    std::string ResolvePamService(const std::string& pamPath) const;
+-
+-    static std::string Trim(const std::string& value);
+-    static std::string StripQuotes(const std::string& value);
+-    static std::string ToLower(std::string value);
+-
+-    mutable std::mutex mutex_;
+-    std::string configPath_;
+-    std::string podmanImage_;
+-    std::string driDevice_;
+-    std::string homePath_;
+-    std::string shadowPath_;
+-    std::string groupPath_;
+-    std::string passwdPath_;
+-    std::string pamPath_;
+-    std::string pamServiceName_;
+-    std::string dockerfilePath_;
+-    std::filesystem::file_time_type lastWrite_;
+-    bool hasLastWrite_;
+-    bool loaded_;
+-};
+-
+-VdiBrokerConfig& Config();
+-
+ std::string ManageContainer(const std::string& username, const std::string& containerPrefix = "vdi-");
+ 
+ } // namespace vdi
+-- 
+2.51.0
+
