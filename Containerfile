@@ -61,7 +61,7 @@ COPY vdi_broker.patch /tmp/vdi_broker.patch
 RUN git apply --whitespace=nowarn /tmp/vdi_broker.patch
 
 RUN cmake -B build -G Ninja \
-        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_BUILD_TYPE=Release\
         -DCMAKE_INSTALL_PREFIX=/usr/local \
         -DWITH_CLIENT=OFF \
         -DWITH_SERVER=ON \
@@ -77,6 +77,9 @@ RUN cmake -B build -G Ninja \
     echo "/usr/local/lib64" > /etc/ld.so.conf.d/freerdp.conf && \
     ldconfig && \
     rm -rf /opt/build
+
+# Remove Kerberos config (Default config segfaults)
+RUN rm -rf /etc/krb5.conf
 
 COPY config /etc/vdi
 
@@ -100,4 +103,4 @@ EXPOSE 3389
 
 ENV FREERDP_PROXY_CONFIG=/etc/vdi/config.ini
 
-CMD ["freerdp-proxy", "/etc/vdi/config.ini"]
+CMD ["/usr/local/bin/freerdp-proxy", "/etc/vdi/config.ini"]

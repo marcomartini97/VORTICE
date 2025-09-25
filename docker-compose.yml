@@ -6,6 +6,10 @@ services:
       - "3389:3389"
     volumes:
       - /run/podman/podman.sock:/run/podman/podman.sock
+      - /home:/home
+      - /etc/shadow:/etc/shadow
+      - /etc/group:/etc/group
+      - /etc/passwd:/etc/passwd
       - /etc/pam.d/vdi-broker:/etc/pam.d/vdi-broker:ro
       - ./VORTICE-vdi:/etc/vdi/VORTICE-vdi
     restart: unless-stopped
