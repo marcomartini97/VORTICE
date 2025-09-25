@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.6
 FROM quay.io/centos/centos:stream10
 
 LABEL org.opencontainers.image.title="vortice" \
@@ -85,19 +86,20 @@ COPY config /etc/vdi
 
 COPY VORTICE-vdi /etc/vdi/VORTICE-vdi
 
-COPY keys /tmp/keys
+COPY keys/ /tmp/keys/
 
-RUN mkdir -p /etc/vdi && \
-    if [ "$(ls -A /tmp/keys)" ]; then \
+# Copy TLS assets from the build context when present; otherwise create a self-signed pair.
+RUN KEYS_PATH=$(find /tmp/keys -maxdepth 1 -type f -name '*.pem' -print -quit) && \
+    mkdir -p /etc/vdi && \
+    if [ -n "$KEYS_PATH" ]; then \
         cp /tmp/keys/* /etc/vdi/; \
     else \
-        openssl req -x509 -nodes -newkey rsa:4096 \
+	openssl req -x509 -nodes -newkey rsa:4096 \
             -keyout /etc/vdi/key.pem \
             -out /etc/vdi/cert.pem \
             -days 365 \
             -subj "/C=US/ST=VDI/L=Proxy/O=Vortice/OU=VDI/CN=freerdp-proxy"; \
-    fi && \
-    rm -rf /tmp/keys
+    fi
 
 EXPOSE 3389
 

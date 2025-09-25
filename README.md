@@ -1,10 +1,12 @@
+VDI ORCHESTRATED RDP THROUGH INTERLEAVED CONTAINERIZED EXECUTION
+
 # Vortice FreeRDP Proxy
 
 `vortice` builds a Fedora based image that compiles FreeRDP with the bundled `vdi_broker.patch`, installs `podman`, and launches `freerdp-proxy /etc/vdi/config.ini`. Clone the repository with `git clone --recurse-submodules` (or run `git submodule update --init --recursive` after cloning) to pull in the `VORTICE-vdi` desktop template.
 
 ## Build the image
 1. Review `config/config.ini` and `config/vdi_broker.yaml`. The broker defaults to `dockerfile_path: /etc/vdi/VORTICE-vdi/Containerfile`; initialize the `VORTICE-vdi` submodule (`git submodule update --init --recursive`) so the downstream desktop template is baked into the image build context.
-2. Populate `keys/` with `cert.pem` / `key.pem` if you already have TLS material. Leave it empty to auto-generate a self-signed pair.
+2. Populate `keys/` with `cert.pem` / `key.pem` if you already have TLS material. When the directory is missing or empty, the build auto-generates a self-signed pair.
 3. Build:
    - `podman build -t vortice .`
    - `docker build -t vortice .`
@@ -60,8 +62,12 @@ services:
       - "3389:3389"
     volumes:
       - /run/podman/podman.sock:/run/podman/podman.sock
+      - /home:/home
+      - /etc/shadow:/etc/shadow
+      - /etc/group:/etc/group
+      - /etc/passwd:/etc/passwd
       - /etc/pam.d/vdi-broker:/etc/pam.d/vdi-broker:ro
       - ./VORTICE-vdi:/etc/vdi/VORTICE-vdi
     restart: unless-stopped
 ```
-Use the same definition with `docker compose` after swapping the socket path to `/var/run/docker.sock`. Place any downstream image Dockerfiles or build context under the `VORTICE-vdi` submodule (or update the mount to another directory) so the broker can access them. Mount `./config` into `/etc/vdi` only if you need to override the baked configuration at runtime.
+Use the same definition with `docker compose` after swapping the socket path to `/var/run/docker.sock` and trimming the SELinux suffix if unsupported. Place any downstream image Dockerfiles or build context under the `VORTICE-vdi` submodule (or update the mount to another directory) so the broker can access them. Only mount `./config` into `/etc/vdi` when you need to override the baked configuration at runtime.
