@@ -1,7 +1,7 @@
 From 55ae99663c2bfafc021f4283ff09d4e08a8c19de Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Mon, 18 Nov 2024 15:32:53 +0100
-Subject: [PATCH 01/19] Add support for SurfaceBits callback
+Subject: [PATCH 01/20] Add support for SurfaceBits callback
 
 ---
  server/proxy/pf_update.c | 36 ++++++++++++++++++++++++++++++++++++
@@ -68,7 +68,7 @@ index e57281039..f4fb6ce15 100644
 From d75b9453770e25af784c221a368e38851a5e0860 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Thu, 21 Nov 2024 16:35:11 +0100
-Subject: [PATCH 02/19] Initial proxy module, just hijacks the IP to a fixed
+Subject: [PATCH 02/20] Initial proxy module, just hijacks the IP to a fixed
  one and adds Username/Domain/Password if empty
 
 ---
@@ -595,7 +595,7 @@ index 000000000..aebe36f89
 From 9a2064347e87d46478756b432f181293efbc9e51 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Tue, 26 Nov 2024 15:25:23 +0100
-Subject: [PATCH 03/19] Initial podman container handling
+Subject: [PATCH 03/20] Initial podman container handling
 
 ---
  .../proxy/modules/vdi_broker/CMakeLists.txt   |  14 +-
@@ -905,7 +905,7 @@ index aebe36f89..2aa3cb7c8 100644
 From abf03e0bfcb76cbed450e219cc9feec0de679716 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Wed, 27 Nov 2024 12:28:14 +0000
-Subject: [PATCH 04/19] Fixed compiling on non-gentoo distros, added some
+Subject: [PATCH 04/20] Fixed compiling on non-gentoo distros, added some
  logging
 
 ---
@@ -1040,7 +1040,7 @@ index 2aa3cb7c8..4bfb09138 100644
 From 11a6b6040a972cd342fa5255ac15b8c73f4e301a Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Mon, 2 Dec 2024 08:59:40 +0100
-Subject: [PATCH 05/19] Force RFX Codec
+Subject: [PATCH 05/20] Force RFX Codec
 
 ---
  server/proxy/pf_client.c | 3 +++
@@ -1067,7 +1067,7 @@ index 1255a4b5d..26e80a5bc 100644
 From 29b27c51dc6282c4ff43708954d048d0f5539b2d Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Thu, 5 Dec 2024 16:51:51 +0100
-Subject: [PATCH 06/19] Fixed container management logic, added Codec parsing
+Subject: [PATCH 06/20] Fixed container management logic, added Codec parsing
 
 ---
  .../proxy/modules/vdi_broker/vdi_broker.cpp   | 223 ++++++++++++++----
@@ -1392,7 +1392,7 @@ index c30d303c2..58803a0a4 100644
 From aceb2692ec7bb277f8c4603bde235e7c042d6bdd Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Mon, 9 Dec 2024 10:42:56 +0100
-Subject: [PATCH 07/19] Fixed RESTful calls
+Subject: [PATCH 07/20] Fixed RESTful calls
 
 ---
  .../proxy/modules/vdi_broker/vdi_broker.cpp   | 168 +++++++++---------
@@ -1636,7 +1636,7 @@ index e266dfa21..e4098ec09 100644
 From dddb6777d5b07eb24fca208cb45e7b0dc8d992c9 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Mon, 9 Dec 2024 14:20:15 +0000
-Subject: [PATCH 08/19] Fixed Container start
+Subject: [PATCH 08/20] Fixed Container start
 
 ---
  server/proxy/modules/vdi_broker/vdi_broker.cpp | 14 ++++++++++----
@@ -1696,7 +1696,7 @@ index e4098ec09..360750482 100644
 From 4101689f6839264bdae34e90a4a284dd36bb9505 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Mon, 16 Dec 2024 21:12:00 +0000
-Subject: [PATCH 09/19] Switch from weston to gnome compositor
+Subject: [PATCH 09/20] Switch from weston to gnome compositor
 
 ---
  .../proxy/modules/vdi_broker/vdi_broker.cpp   | 53 ++++++++++---------
@@ -1858,7 +1858,7 @@ index 360750482..ff7b9e191 100644
 From 366e03bd0f9cdd268714c9b53b5760630d38f024 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Mon, 16 Dec 2024 21:25:20 +0000
-Subject: [PATCH 10/19] Add workaround for GTK Vulkan renderer
+Subject: [PATCH 10/20] Add workaround for GTK Vulkan renderer
 
 ---
  server/proxy/modules/vdi_broker/vdi_broker.cpp | 3 ++-
@@ -1885,7 +1885,7 @@ index ff7b9e191..c1ca97725 100644
 From 0c0179d4f5ec0f8ac9667b188032b57beb632300 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Tue, 17 Dec 2024 10:11:55 +0000
-Subject: [PATCH 11/19] Add initial PAM authentication
+Subject: [PATCH 11/20] Add initial PAM authentication
 
 ---
  .../proxy/modules/vdi_broker/CMakeLists.txt   |   8 +-
@@ -2120,7 +2120,7 @@ index c1ca97725..464ea9833 100644
 From 522b432a9c8b67f6b5012565ea37b0a6d74f734d Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Thu, 19 Dec 2024 16:10:06 +0100
-Subject: [PATCH 12/19] Added Kerberos Auth, minor fixes
+Subject: [PATCH 12/20] Added Kerberos Auth, minor fixes
 
 To use Kerberos, we must create /etc/pam.d/vdi-broker with pam_krb5.so module
 ---
@@ -2199,7 +2199,7 @@ index 464ea9833..a9d47ae45 100644
 From e76938f2e440958b06cd9f0461f2ebeee11efcf7 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Wed, 29 Jan 2025 16:55:46 +0100
-Subject: [PATCH 13/19] Update vdi_broker.cpp
+Subject: [PATCH 13/20] Update vdi_broker.cpp
 
 Modify process wait logic
 ---
@@ -2227,7 +2227,7 @@ index a9d47ae45..c8561ad8a 100644
 From 8583193afd370de6bcb09ad9964da171853be5a8 Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Tue, 23 Sep 2025 17:49:01 +0200
-Subject: [PATCH 14/19] =?UTF-8?q?Added=20startup/config-change=20logging?=
+Subject: [PATCH 14/20] =?UTF-8?q?Added=20startup/config-change=20logging?=
  =?UTF-8?q?=20so=20the=20plugin=20immediately=20prints=20the=20active=20Po?=
  =?UTF-8?q?dman=20image,=20mount=20paths,=20PAM=20stack,=20and=20Dockerfil?=
  =?UTF-8?q?e=20setting,=20with=20safe=20refresh=20handling=20on=20each=20p?=
@@ -3920,7 +3920,7 @@ index 000000000..46e743dc6
 From 785aff906b272bfe730b386e676968be5e5bb9ea Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Wed, 24 Sep 2025 13:15:01 +0200
-Subject: [PATCH 15/19] Fixed compilation error on old compilers
+Subject: [PATCH 15/20] Fixed compilation error on old compilers
 
 ---
  .gitignore                                    |  3 +
@@ -4047,7 +4047,7 @@ index 518124d78..3309b2555 100644
 From e803743011709624154e935e01003b553abb1604 Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Thu, 25 Sep 2025 15:04:11 +0200
-Subject: [PATCH 16/19] Removed useless demo leftovers
+Subject: [PATCH 16/20] Removed useless demo leftovers
 
 ---
  .../proxy/modules/vdi_broker/vdi_broker.cpp   | 328 ------------------
@@ -4446,7 +4446,7 @@ index 897b03e58..1d94359cb 100644
 From 74132bfa4e12d9b15cc58239c136544168d91636 Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Thu, 25 Sep 2025 15:59:38 +0200
-Subject: [PATCH 17/19] Refactored config, added multi-session, added
+Subject: [PATCH 17/20] Refactored config, added multi-session, added
  configurable rdp auth for container connection
 
 ---
@@ -5542,7 +5542,7 @@ index 46e743dc6..1d26ed345 100644
 From 0f82707b32e053521c311c7354c77de1ada8c965 Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Thu, 25 Sep 2025 21:04:17 +0200
-Subject: [PATCH 18/19] Replaced system call for image building with REST api
+Subject: [PATCH 18/20] Replaced system call for image building with REST api
  through tarball
 
 ---
@@ -5980,7 +5980,7 @@ index ac7b3ac30..da507bd97 100644
 From de710fbd937cef45dbc3db71ed6be90537f76037 Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Fri, 26 Sep 2025 00:27:19 +0200
-Subject: [PATCH 19/19] Use FreeRDP logging, improve ready check reliability by
+Subject: [PATCH 19/20] Use FreeRDP logging, improve ready check reliability by
  scanning the port (and closing well the connection)
 
 ---
@@ -6577,6 +6577,571 @@ index da507bd97..4eacf0721 100644
  
      return ip;
  }
+-- 
+2.51.0
+
+
+From 385e7c7250a4a6e94128b6cf97d7983f098569a5 Mon Sep 17 00:00:00 2001
+From: Marco Martini <marco.martini.7@studenti.unipd.it>
+Date: Fri, 26 Sep 2025 16:19:52 +0200
+Subject: [PATCH 20/20] Add NVIDIA support (not tested yet), per-user custom
+ image, custom mount points, software rendering support
+
+---
+ .../proxy/modules/vdi_broker/vdi_broker.cpp   |  14 ++
+ .../modules/vdi_broker/vdi_broker.sample.yaml |  19 +-
+ .../modules/vdi_broker/vdi_broker_config.cpp  | 211 +++++++++++++++++-
+ .../modules/vdi_broker/vdi_broker_config.h    |  22 ++
+ .../vdi_broker/vdi_container_manager.cpp      |  71 ++++--
+ 5 files changed, 314 insertions(+), 23 deletions(-)
+
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.cpp b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+index cb90166e0..c8d6eebc7 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker.cpp
+@@ -24,6 +24,8 @@
+ #include <iostream>
+ #include <string>
+ #include <cctype>
++#include <cstdint>
++#include <inttypes.h>
+ #include <unistd.h>
+ #include <security/pam_appl.h>
+ #include <security/pam_misc.h>
+@@ -96,6 +98,10 @@ void vdi_log_configuration_state(bool refreshed)
+ 	const std::string pamService = configuration.PamServiceName();
+ 	const std::string rdpUsername = configuration.RdpUsername();
+ 	const std::string rdpPassword = configuration.RdpPassword();
++	const std::size_t userImageOverrides = configuration.UserImageCount();
++	const std::size_t customMounts = configuration.CustomMountCount();
++	const bool nvidiaEnabled = configuration.NvidiaGpuEnabled();
++	const std::uint32_t nvidiaSlot = configuration.NvidiaGpuSlot();
+ 
+ 	const char* configPathStr = configPath.empty() ? "<defaults>" : configPath.c_str();
+ 	const char* dockerfileStr = dockerfilePath.empty() ? "<unset>" : dockerfilePath.c_str();
+@@ -108,6 +114,13 @@ void vdi_log_configuration_state(bool refreshed)
+ 	WLog_INFO(TAG, "VDI broker configuration loaded");
+ 	WLog_INFO(TAG, "  config_path   : %s", configPathStr);
+ 	WLog_INFO(TAG, "  podman_image  : %s", podmanImage.c_str());
++	WLog_INFO(TAG, "  user_images   : %" PRIu64 " overrides",
++	          static_cast<std::uint64_t>(userImageOverrides));
++	WLog_INFO(TAG, "  custom_mounts : %" PRIu64 " entries",
++	          static_cast<std::uint64_t>(customMounts));
++	WLog_INFO(TAG, "  nvidia_gpu    : %s", nvidiaEnabled ? "enabled" : "disabled");
++	if (nvidiaEnabled)
++		WLog_INFO(TAG, "  nvidia_slot   : %" PRIu32, nvidiaSlot);
+ 	WLog_INFO(TAG, "  dri_device    : %s", driDevice.c_str());
+ 	WLog_INFO(TAG, "  home_path     : %s", homePath.c_str());
+ 	WLog_INFO(TAG, "  shadow_path   : %s", shadowPath.c_str());
+@@ -367,6 +380,7 @@ static BOOL vdi_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
+ 		const std::string rdpPassword =
+ 		    configuration.RdpPassword().empty() ? "rdp" : configuration.RdpPassword();
+ 		freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip.c_str());
++		freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, 3389);
+ 		freerdp_settings_set_string(settings, FreeRDP_Username, rdpUsername.c_str());
+ 		freerdp_settings_set_string(settings, FreeRDP_Password, rdpPassword.c_str());
+ 		freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker.sample.yaml b/server/proxy/modules/vdi_broker/vdi_broker.sample.yaml
+index 09d9c26d9..b92ed20b7 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker.sample.yaml
++++ b/server/proxy/modules/vdi_broker/vdi_broker.sample.yaml
+@@ -3,7 +3,22 @@
+ 
+ podman_image: vdi-gnome
+ 
+-# Override the render node passed into the container (optional).
++# Optional per-user overrides. Each entry provides a username and the image to launch.
++user_images:
++  # - user: alice
++  #   image: custom-gnome-alice
++
++# Additional bind mounts into the container (optional).
++custom_mounts:
++  # - source: /etc/timezone
++  #   destination: /etc/timezone
++  #   read_only: true
++
++# Enable NVIDIA GPU passthrough and set the device slot (e.g., 0, 1, 2).
++nvidia_gpu: false
++nvidia_gpu_slot: 0
++
++# Override the render node passed into the container (optional, comment for software rendering).
+ dri_device: /dev/dri/renderD128
+ 
+ # Host directories bound into the VDI session container.
+@@ -17,7 +32,7 @@ pam_path: /etc/pam.d/vdi-broker
+ 
+ # Optional path to a Dockerfile that can be used to build the podman image
+ # when it is not present locally.
+-dockerfile_path: /path/to/Dockerfile
++dockerfile_path: /etc/vdi/VORTICE-vdi/Containerfile
+ 
+ # Credentials used by the proxy to connect to the GNOME Remote Desktop service
+ # inside the Podman container. Defaults fallback to "rdp" when omitted.
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker_config.cpp b/server/proxy/modules/vdi_broker/vdi_broker_config.cpp
+index 88e5a6a0f..846bf1b19 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker_config.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_broker_config.cpp
+@@ -7,6 +7,7 @@
+ #include <fstream>
+ #include <iostream>
+ #include <sstream>
++#include <limits>
+ 
+ namespace
+ {
+@@ -26,7 +27,8 @@ VdiBrokerConfig& VdiBrokerConfig::Instance()
+ VdiBrokerConfig::VdiBrokerConfig()
+     : configPath_(), podmanImage_(), driDevice_(), homePath_(), shadowPath_(), groupPath_(),
+       passwdPath_(), pamPath_(), pamServiceName_(kDefaultPamService), dockerfilePath_(),
+-      rdpUsername_(), rdpPassword_(), hasLastWrite_(false), loaded_(false), reloaded_(false)
++      rdpUsername_(), rdpPassword_(), userImages_(), nvidiaGpuEnabled_(false),
++      nvidiaGpuSlot_(0), customMounts_(), hasLastWrite_(false), loaded_(false), reloaded_(false)
+ {
+     const char* env = std::getenv(kEnvConfigPath);
+     if (env && *env)
+@@ -173,6 +175,52 @@ std::string VdiBrokerConfig::RdpPassword() const
+     return rdpPassword_;
+ }
+ 
++std::string VdiBrokerConfig::PodmanImageForUser(const std::string& username) const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    const std::string normalized = ToLower(username);
++    const auto it = userImages_.find(normalized);
++    if (it != userImages_.end())
++        return it->second;
++    return podmanImage_;
++}
++
++bool VdiBrokerConfig::HasUserImage(const std::string& username) const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return userImages_.find(ToLower(username)) != userImages_.end();
++}
++
++std::size_t VdiBrokerConfig::UserImageCount() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return userImages_.size();
++}
++
++bool VdiBrokerConfig::NvidiaGpuEnabled() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return nvidiaGpuEnabled_;
++}
++
++std::uint32_t VdiBrokerConfig::NvidiaGpuSlot() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return nvidiaGpuSlot_;
++}
++
++std::vector<VdiBrokerConfig::Mount> VdiBrokerConfig::CustomMounts() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return customMounts_;
++}
++
++std::size_t VdiBrokerConfig::CustomMountCount() const
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    return customMounts_.size();
++}
++
+ bool VdiBrokerConfig::ConsumeReloadedFlag()
+ {
+     std::lock_guard<std::mutex> lock(mutex_);
+@@ -184,7 +232,7 @@ bool VdiBrokerConfig::ConsumeReloadedFlag()
+ void VdiBrokerConfig::ApplyDefaultsUnlocked()
+ {
+     podmanImage_ = "vdi-gnome";
+-    driDevice_ = "/dev/dri/renderD128";
++    driDevice_.clear();
+     homePath_ = "/home";
+     shadowPath_ = "/etc/shadow";
+     groupPath_ = "/etc/group";
+@@ -194,6 +242,10 @@ void VdiBrokerConfig::ApplyDefaultsUnlocked()
+     dockerfilePath_.clear();
+     rdpUsername_ = "rdp";
+     rdpPassword_ = "rdp";
++    userImages_.clear();
++    nvidiaGpuEnabled_ = false;
++    nvidiaGpuSlot_ = 0;
++    customMounts_.clear();
+ }
+ 
+ bool VdiBrokerConfig::LoadFromFileUnlocked(const std::string& path)
+@@ -220,6 +272,28 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
+ {
+     std::istringstream stream(content);
+     std::string line;
++    bool inUserImagesBlock = false;
++    bool inCustomMountsBlock = false;
++    std::string currentUser;
++    std::string currentImage;
++    std::string currentMountSource;
++    std::string currentMountDestination;
++    bool currentMountReadOnly = false;
++
++    auto flushUserImage = [&]() {
++        if (!currentUser.empty() && !currentImage.empty())
++            userImages_[ToLower(currentUser)] = currentImage;
++        currentUser.clear();
++        currentImage.clear();
++    };
++
++    auto flushCustomMount = [&]() {
++        if (!currentMountSource.empty() && !currentMountDestination.empty())
++            customMounts_.push_back({currentMountSource, currentMountDestination, currentMountReadOnly});
++        currentMountSource.clear();
++        currentMountDestination.clear();
++        currentMountReadOnly = false;
++    };
+ 
+     while (std::getline(stream, line))
+     {
+@@ -227,6 +301,89 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
+         if (trimmed.empty() || trimmed[0] == '#')
+             continue;
+ 
++        const bool isTopLevelLine = !line.empty() &&
++                                    !std::isspace(static_cast<unsigned char>(line.front()));
++        if (inUserImagesBlock && isTopLevelLine && trimmed[0] != '-')
++        {
++            flushUserImage();
++            inUserImagesBlock = false;
++        }
++        if (inCustomMountsBlock && isTopLevelLine && trimmed[0] != '-')
++        {
++            flushCustomMount();
++            inCustomMountsBlock = false;
++        }
++
++        if (inUserImagesBlock)
++        {
++            if (trimmed[0] == '-')
++            {
++                flushUserImage();
++                trimmed = Trim(trimmed.substr(1));
++                if (trimmed.empty())
++                    continue;
++            }
++
++            const auto pos = trimmed.find(':');
++            if (pos == std::string::npos)
++                continue;
++
++            std::string key = ToLower(Trim(trimmed.substr(0, pos)));
++            std::string value = Trim(trimmed.substr(pos + 1));
++
++            const auto commentPos = value.find('#');
++            if (commentPos != std::string::npos)
++                value = Trim(value.substr(0, commentPos));
++
++            value = StripQuotes(value);
++
++            if (key == "user" || key == "username")
++                currentUser = value;
++            else if (key == "image" || key == "podman_image")
++                currentImage = value;
++
++            continue;
++        }
++
++        if (inCustomMountsBlock)
++        {
++            if (trimmed[0] == '-')
++            {
++                flushCustomMount();
++                trimmed = Trim(trimmed.substr(1));
++                if (trimmed.empty())
++                    continue;
++            }
++
++            const auto pos = trimmed.find(':');
++            if (pos == std::string::npos)
++                continue;
++
++            std::string key = ToLower(Trim(trimmed.substr(0, pos)));
++            std::string value = Trim(trimmed.substr(pos + 1));
++
++            const auto commentPos = value.find('#');
++            if (commentPos != std::string::npos)
++                value = Trim(value.substr(0, commentPos));
++
++            value = StripQuotes(value);
++
++            if (key == "source" || key == "host" || key == "src")
++                currentMountSource = value;
++            else if (key == "destination" || key == "target" || key == "container" ||
++                     key == "dest")
++                currentMountDestination = value;
++            else if (key == "read_only" || key == "readonly" || key == "read-only" ||
++                     key == "ro")
++            {
++                const std::string lower = ToLower(value);
++                currentMountReadOnly = (lower == "true" || lower == "1" || lower == "yes" ||
++                                        lower == "on");
++            }
++
++            continue;
++        }
++
+         const auto pos = trimmed.find(':');
+         if (pos == std::string::npos)
+             continue;
+@@ -246,6 +403,53 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
+             if (!value.empty())
+                 podmanImage_ = value;
+         }
++        else if (normalized == "user_images" || normalized == "custom_user_images")
++        {
++            userImages_.clear();
++            if (value.empty() || value == "|")
++            {
++                inUserImagesBlock = true;
++                currentUser.clear();
++                currentImage.clear();
++            }
++        }
++        else if (normalized == "custom_mounts" || normalized == "additional_mounts")
++        {
++            customMounts_.clear();
++            if (value.empty() || value == "|")
++            {
++                inCustomMountsBlock = true;
++                currentMountSource.clear();
++                currentMountDestination.clear();
++                currentMountReadOnly = false;
++            }
++        }
++        else if (normalized == "nvidia_gpu" || normalized == "use_nvidia_gpu" ||
++                 normalized == "enable_nvidia_gpu")
++        {
++            const std::string lower = ToLower(value);
++            if (lower == "true" || lower == "1" || lower == "yes" || lower == "on")
++                nvidiaGpuEnabled_ = true;
++            else if (lower == "false" || lower == "0" || lower == "no" || lower == "off")
++                nvidiaGpuEnabled_ = false;
++        }
++        else if (normalized == "nvidia_gpu_slot" || normalized == "nvidia_gpu_index" ||
++                 normalized == "nvidia_slot")
++        {
++            try
++            {
++                if (!value.empty())
++                {
++                    const unsigned long parsed = std::stoul(value);
++                    if (parsed <= std::numeric_limits<std::uint32_t>::max())
++                        nvidiaGpuSlot_ = static_cast<std::uint32_t>(parsed);
++                }
++            }
++            catch (...)
++            {
++                // Ignore malformed slot values and retain the previous setting.
++            }
++        }
+         else if (normalized == "dri_device" || normalized == "dri_render_device")
+         {
+             if (!value.empty())
+@@ -296,6 +500,9 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
+         }
+     }
+ 
++    flushUserImage();
++    flushCustomMount();
++
+     pamServiceName_ = ResolvePamService(pamPath_);
+     return true;
+ }
+diff --git a/server/proxy/modules/vdi_broker/vdi_broker_config.h b/server/proxy/modules/vdi_broker/vdi_broker_config.h
+index cf8496a2b..925a313e7 100644
+--- a/server/proxy/modules/vdi_broker/vdi_broker_config.h
++++ b/server/proxy/modules/vdi_broker/vdi_broker_config.h
+@@ -1,14 +1,25 @@
+ #pragma once
+ 
++#include <cstddef>
++#include <cstdint>
+ #include <filesystem>
+ #include <mutex>
+ #include <string>
++#include <unordered_map>
++#include <vector>
+ 
+ namespace vdi
+ {
+ class VdiBrokerConfig
+ {
+ public:
++    struct Mount
++    {
++        std::string source;
++        std::string destination;
++        bool readOnly;
++    };
++
+     static VdiBrokerConfig& Instance();
+ 
+     void SetConfigPath(const std::string& path);
+@@ -28,6 +39,13 @@ public:
+     std::string DockerfilePath() const;
+     std::string RdpUsername() const;
+     std::string RdpPassword() const;
++    std::string PodmanImageForUser(const std::string& username) const;
++    bool HasUserImage(const std::string& username) const;
++    std::size_t UserImageCount() const;
++    bool NvidiaGpuEnabled() const;
++    std::uint32_t NvidiaGpuSlot() const;
++    std::vector<Mount> CustomMounts() const;
++    std::size_t CustomMountCount() const;
+ 
+ private:
+     VdiBrokerConfig();
+@@ -56,6 +74,10 @@ private:
+     std::string dockerfilePath_;
+     std::string rdpUsername_;
+     std::string rdpPassword_;
++    std::unordered_map<std::string, std::string> userImages_;
++    bool nvidiaGpuEnabled_;
++    std::uint32_t nvidiaGpuSlot_;
++    std::vector<Mount> customMounts_;
+     std::filesystem::file_time_type lastWrite_;
+     bool hasLastWrite_;
+     bool loaded_;
+diff --git a/server/proxy/modules/vdi_broker/vdi_container_manager.cpp b/server/proxy/modules/vdi_broker/vdi_container_manager.cpp
+index 4eacf0721..3af591caa 100644
+--- a/server/proxy/modules/vdi_broker/vdi_container_manager.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_container_manager.cpp
+@@ -701,14 +701,15 @@ bool WaitForTcpPort(const std::string& host, std::uint16_t port)
+     return false;
+ }
+ 
+-Json::Value BuildCreatePayload(const std::string& containerName, const std::string& username)
++Json::Value BuildCreatePayload(const std::string& containerName, const std::string& username,
++                               const std::string& image)
+ {
+     auto& config = vdi::Config();
+ 
+     Json::Value root(Json::objectValue);
+     root["name"] = containerName;
+     root["hostname"] = containerName;
+-    root["image"] = config.PodmanImage();
++    root["image"] = image;
+ 
+     Json::Value caps(Json::arrayValue);
+     caps.append("SYS_ADMIN");
+@@ -718,22 +719,26 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
+     root["cap_add"] = caps;
+ 
+     Json::Value devices(Json::arrayValue);
+-    Json::Value fuse(Json::objectValue);
+-    fuse["path"] = "/dev/fuse";
+-    devices.append(fuse);
++    auto appendDevice = [&devices](const std::string& path) {
++        if (path.empty())
++            return;
++        Json::Value device(Json::objectValue);
++        device["path"] = path;
++        devices.append(device);
++    };
++
++    appendDevice("/dev/fuse");
+ 
+     const auto driDevice = config.DriDevice();
+     if (!driDevice.empty())
+-    {
+-        Json::Value dri(Json::objectValue);
+-        dri["path"] = driDevice;
+-        devices.append(dri);
+-    }
++        appendDevice(driDevice);
+     root["devices"] = devices;
+     root["systemd"] = "always";
+ 
++    const bool nvidiaEnabled = config.NvidiaGpuEnabled();
+     Json::Value env(Json::objectValue);
+-    env["GSK_RENDERER"] = "ngl";
++    if (nvidiaEnabled)
++        env["GSK_RENDERER"] = "ngl";
+     root["env"] = env;
+ 
+     Json::Value mounts(Json::arrayValue);
+@@ -749,7 +754,7 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
+         mounts.append(mount);
+     };
+ 
+-    appendMount("/etc/vdi", "/etc/vdi", true);
++    // appendMount("/etc/vdi", "/etc/vdi", true);
+     appendMount(config.PasswdPath(), "/etc/passwd", true);
+     appendMount(config.GroupPath(), "/etc/group", true);
+     appendMount(config.ShadowPath(), "/etc/shadow", true);
+@@ -759,6 +764,24 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
+     if (!pamPath.empty())
+         appendMount(pamPath, pamPath, true);
+ 
++    const auto customMounts = config.CustomMounts();
++    for (const auto& mount : customMounts)
++        appendMount(mount.source, mount.destination, mount.readOnly);
++
++    if (nvidiaEnabled)
++    {
++        const std::string base = "/dev/nvidia" + std::to_string(config.NvidiaGpuSlot());
++        const std::array<std::string, 6> nvidiaDevices = {
++            "/dev/nvidia-caps", base, "/dev/nvidiactl", "/dev/nvidia-modeset",
++            "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"};
++
++        for (const auto& dev : nvidiaDevices)
++        {
++            appendDevice(dev);
++            appendMount(dev, dev, false);
++        }
++    }
++
+     root["mounts"] = mounts;
+ 
+     Json::Value command(Json::arrayValue);
+@@ -775,7 +798,10 @@ bool CreateContainerInternal(const std::string& containerName, const std::string
+     if (!curl)
+         return false;
+ 
+-    const Json::Value payload = BuildCreatePayload(containerName, username);
++    auto& config = vdi::Config();
++    const std::string image = config.PodmanImageForUser(username);
++    const bool hasCustomImage = config.HasUserImage(username);
++    const Json::Value payload = BuildCreatePayload(containerName, username, image);
+     Json::StreamWriterBuilder writerBuilder;
+     writerBuilder["indentation"] = "";
+     const std::string payloadStr = Json::writeString(writerBuilder, payload);
+@@ -816,13 +842,20 @@ bool CreateContainerInternal(const std::string& containerName, const std::string
+     curl_slist_free_all(headers);
+     curl_easy_cleanup(curl);
+ 
+-    if (!success && missingImage && allowBuild)
++    if (!success && missingImage)
+     {
+-        auto& config = vdi::Config();
+-        const std::string image = config.PodmanImage();
+-        const std::string dockerfile = config.DockerfilePath();
+-        if (BuildImageFromDockerfile(image, dockerfile))
+-            return CreateContainerInternal(containerName, username, false);
++        if (hasCustomImage)
++        {
++            WLog_ERR(TAG,
++                     "Podman image %s configured for user %s is missing; skipping auto-build",
++                     image.c_str(), username.c_str());
++        }
++        else if (allowBuild)
++        {
++            const std::string dockerfile = config.DockerfilePath();
++            if (BuildImageFromDockerfile(image, dockerfile))
++                return CreateContainerInternal(containerName, username, false);
++        }
+     }
+ 
+     return success;
 -- 
 2.51.0
 

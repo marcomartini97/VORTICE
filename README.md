@@ -47,6 +47,7 @@ podman run --rm -it \
   -p 3389:3389 \
   -v /run/podman/podman.sock:/run/podman/podman.sock:Z \
   -v /etc/pam.d/vdi-broker:/etc/pam.d/vdi-broker:ro \
+  -v ./config/vdi_broker.yaml:/etc/vdi/vdi_broker.yaml:ro,Z \
   -v /path/to/desktop-context:/etc/vdi/VORTICE-vdi:Z \
   vortice
 ```
@@ -62,6 +63,7 @@ services:
       - "3389:3389"
     volumes:
       - /run/podman/podman.sock:/run/podman/podman.sock
+      - ./config/vdi_broker.yaml:/etc/vdi/vdi_broker.yaml:ro
       - /home:/home
       - /etc/shadow:/etc/shadow
       - /etc/group:/etc/group
@@ -70,4 +72,4 @@ services:
       - ./VORTICE-vdi:/etc/vdi/VORTICE-vdi
     restart: unless-stopped
 ```
-Use the same definition with `docker compose` after swapping the socket path to `/var/run/docker.sock` and trimming the SELinux suffix if unsupported. Place any downstream image Dockerfiles or build context under the `VORTICE-vdi` submodule (or update the mount to another directory) so the broker can access them. Only mount `./config` into `/etc/vdi` when you need to override the baked configuration at runtime.
+Use the same definition with `docker compose` after swapping the socket path to `/var/run/docker.sock` and trimming the SELinux suffix if unsupported. Place any downstream image Dockerfiles or build context under the `VORTICE-vdi` submodule (or update the mount to another directory) so the broker can access them. Mount `./config/vdi_broker.yaml` to override the baked broker configuration without replacing the rest of `/etc/vdi`; mount the whole `./config` directory only when you need to replace additional assets such as `config.ini`.

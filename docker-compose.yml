@@ -11,5 +11,6 @@ services:
       - /etc/group:/etc/group
       - /etc/passwd:/etc/passwd
       - /etc/pam.d/vdi-broker:/etc/pam.d/vdi-broker:ro
+      - ./config/vdi_broker.yaml:/etc/vdi/vdi_broker.yaml:ro
       - ./VORTICE-vdi:/etc/vdi/VORTICE-vdi
     restart: unless-stopped
