@@ -1,7 +1,7 @@
 From 55ae99663c2bfafc021f4283ff09d4e08a8c19de Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Mon, 18 Nov 2024 15:32:53 +0100
-Subject: [PATCH 01/24] Add support for SurfaceBits callback
+Subject: [PATCH 01/25] Add support for SurfaceBits callback
 
 ---
  server/proxy/pf_update.c | 36 ++++++++++++++++++++++++++++++++++++
@@ -68,7 +68,7 @@ index e57281039..f4fb6ce15 100644
 From d75b9453770e25af784c221a368e38851a5e0860 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Thu, 21 Nov 2024 16:35:11 +0100
-Subject: [PATCH 02/24] Initial proxy module, just hijacks the IP to a fixed
+Subject: [PATCH 02/25] Initial proxy module, just hijacks the IP to a fixed
  one and adds Username/Domain/Password if empty
 
 ---
@@ -595,7 +595,7 @@ index 000000000..aebe36f89
 From 9a2064347e87d46478756b432f181293efbc9e51 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Tue, 26 Nov 2024 15:25:23 +0100
-Subject: [PATCH 03/24] Initial podman container handling
+Subject: [PATCH 03/25] Initial podman container handling
 
 ---
  .../proxy/modules/vdi_broker/CMakeLists.txt   |  14 +-
@@ -905,7 +905,7 @@ index aebe36f89..2aa3cb7c8 100644
 From abf03e0bfcb76cbed450e219cc9feec0de679716 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Wed, 27 Nov 2024 12:28:14 +0000
-Subject: [PATCH 04/24] Fixed compiling on non-gentoo distros, added some
+Subject: [PATCH 04/25] Fixed compiling on non-gentoo distros, added some
  logging
 
 ---
@@ -1040,7 +1040,7 @@ index 2aa3cb7c8..4bfb09138 100644
 From 11a6b6040a972cd342fa5255ac15b8c73f4e301a Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Mon, 2 Dec 2024 08:59:40 +0100
-Subject: [PATCH 05/24] Force RFX Codec
+Subject: [PATCH 05/25] Force RFX Codec
 
 ---
  server/proxy/pf_client.c | 3 +++
@@ -1067,7 +1067,7 @@ index 1255a4b5d..26e80a5bc 100644
 From 29b27c51dc6282c4ff43708954d048d0f5539b2d Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Thu, 5 Dec 2024 16:51:51 +0100
-Subject: [PATCH 06/24] Fixed container management logic, added Codec parsing
+Subject: [PATCH 06/25] Fixed container management logic, added Codec parsing
 
 ---
  .../proxy/modules/vdi_broker/vdi_broker.cpp   | 223 ++++++++++++++----
@@ -1392,7 +1392,7 @@ index c30d303c2..58803a0a4 100644
 From aceb2692ec7bb277f8c4603bde235e7c042d6bdd Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Mon, 9 Dec 2024 10:42:56 +0100
-Subject: [PATCH 07/24] Fixed RESTful calls
+Subject: [PATCH 07/25] Fixed RESTful calls
 
 ---
  .../proxy/modules/vdi_broker/vdi_broker.cpp   | 168 +++++++++---------
@@ -1636,7 +1636,7 @@ index e266dfa21..e4098ec09 100644
 From dddb6777d5b07eb24fca208cb45e7b0dc8d992c9 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Mon, 9 Dec 2024 14:20:15 +0000
-Subject: [PATCH 08/24] Fixed Container start
+Subject: [PATCH 08/25] Fixed Container start
 
 ---
  server/proxy/modules/vdi_broker/vdi_broker.cpp | 14 ++++++++++----
@@ -1696,7 +1696,7 @@ index e4098ec09..360750482 100644
 From 4101689f6839264bdae34e90a4a284dd36bb9505 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Mon, 16 Dec 2024 21:12:00 +0000
-Subject: [PATCH 09/24] Switch from weston to gnome compositor
+Subject: [PATCH 09/25] Switch from weston to gnome compositor
 
 ---
  .../proxy/modules/vdi_broker/vdi_broker.cpp   | 53 ++++++++++---------
@@ -1858,7 +1858,7 @@ index 360750482..ff7b9e191 100644
 From 366e03bd0f9cdd268714c9b53b5760630d38f024 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Mon, 16 Dec 2024 21:25:20 +0000
-Subject: [PATCH 10/24] Add workaround for GTK Vulkan renderer
+Subject: [PATCH 10/25] Add workaround for GTK Vulkan renderer
 
 ---
  server/proxy/modules/vdi_broker/vdi_broker.cpp | 3 ++-
@@ -1885,7 +1885,7 @@ index ff7b9e191..c1ca97725 100644
 From 0c0179d4f5ec0f8ac9667b188032b57beb632300 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Tue, 17 Dec 2024 10:11:55 +0000
-Subject: [PATCH 11/24] Add initial PAM authentication
+Subject: [PATCH 11/25] Add initial PAM authentication
 
 ---
  .../proxy/modules/vdi_broker/CMakeLists.txt   |   8 +-
@@ -2120,7 +2120,7 @@ index c1ca97725..464ea9833 100644
 From 522b432a9c8b67f6b5012565ea37b0a6d74f734d Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Thu, 19 Dec 2024 16:10:06 +0100
-Subject: [PATCH 12/24] Added Kerberos Auth, minor fixes
+Subject: [PATCH 12/25] Added Kerberos Auth, minor fixes
 
 To use Kerberos, we must create /etc/pam.d/vdi-broker with pam_krb5.so module
 ---
@@ -2199,7 +2199,7 @@ index 464ea9833..a9d47ae45 100644
 From e76938f2e440958b06cd9f0461f2ebeee11efcf7 Mon Sep 17 00:00:00 2001
 From: Marco Martini <deckedspring@gmail.com>
 Date: Wed, 29 Jan 2025 16:55:46 +0100
-Subject: [PATCH 13/24] Update vdi_broker.cpp
+Subject: [PATCH 13/25] Update vdi_broker.cpp
 
 Modify process wait logic
 ---
@@ -2227,7 +2227,7 @@ index a9d47ae45..c8561ad8a 100644
 From 8583193afd370de6bcb09ad9964da171853be5a8 Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Tue, 23 Sep 2025 17:49:01 +0200
-Subject: [PATCH 14/24] =?UTF-8?q?Added=20startup/config-change=20logging?=
+Subject: [PATCH 14/25] =?UTF-8?q?Added=20startup/config-change=20logging?=
  =?UTF-8?q?=20so=20the=20plugin=20immediately=20prints=20the=20active=20Po?=
  =?UTF-8?q?dman=20image,=20mount=20paths,=20PAM=20stack,=20and=20Dockerfil?=
  =?UTF-8?q?e=20setting,=20with=20safe=20refresh=20handling=20on=20each=20p?=
@@ -3920,7 +3920,7 @@ index 000000000..46e743dc6
 From 785aff906b272bfe730b386e676968be5e5bb9ea Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Wed, 24 Sep 2025 13:15:01 +0200
-Subject: [PATCH 15/24] Fixed compilation error on old compilers
+Subject: [PATCH 15/25] Fixed compilation error on old compilers
 
 ---
  .gitignore                                    |  3 +
@@ -4047,7 +4047,7 @@ index 518124d78..3309b2555 100644
 From e803743011709624154e935e01003b553abb1604 Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Thu, 25 Sep 2025 15:04:11 +0200
-Subject: [PATCH 16/24] Removed useless demo leftovers
+Subject: [PATCH 16/25] Removed useless demo leftovers
 
 ---
  .../proxy/modules/vdi_broker/vdi_broker.cpp   | 328 ------------------
@@ -4446,7 +4446,7 @@ index 897b03e58..1d94359cb 100644
 From 74132bfa4e12d9b15cc58239c136544168d91636 Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Thu, 25 Sep 2025 15:59:38 +0200
-Subject: [PATCH 17/24] Refactored config, added multi-session, added
+Subject: [PATCH 17/25] Refactored config, added multi-session, added
  configurable rdp auth for container connection
 
 ---
@@ -5542,7 +5542,7 @@ index 46e743dc6..1d26ed345 100644
 From 0f82707b32e053521c311c7354c77de1ada8c965 Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Thu, 25 Sep 2025 21:04:17 +0200
-Subject: [PATCH 18/24] Replaced system call for image building with REST api
+Subject: [PATCH 18/25] Replaced system call for image building with REST api
  through tarball
 
 ---
@@ -5980,7 +5980,7 @@ index ac7b3ac30..da507bd97 100644
 From de710fbd937cef45dbc3db71ed6be90537f76037 Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Fri, 26 Sep 2025 00:27:19 +0200
-Subject: [PATCH 19/24] Use FreeRDP logging, improve ready check reliability by
+Subject: [PATCH 19/25] Use FreeRDP logging, improve ready check reliability by
  scanning the port (and closing well the connection)
 
 ---
@@ -6584,7 +6584,7 @@ index da507bd97..4eacf0721 100644
 From 385e7c7250a4a6e94128b6cf97d7983f098569a5 Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Fri, 26 Sep 2025 16:19:52 +0200
-Subject: [PATCH 20/24] Add NVIDIA support (not tested yet), per-user custom
+Subject: [PATCH 20/25] Add NVIDIA support (not tested yet), per-user custom
  image, custom mount points, software rendering support
 
 ---
@@ -7149,7 +7149,7 @@ index 4eacf0721..3af591caa 100644
 From 25bc8408063a98c982e79b0a8372053da88bbf09 Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Mon, 29 Sep 2025 09:10:51 +0200
-Subject: [PATCH 21/24] Removed process check, leaving only TCP port checks,
+Subject: [PATCH 21/25] Removed process check, leaving only TCP port checks,
  leave the command entrypoint to the image for more flexibility
 
 ---
@@ -7239,7 +7239,7 @@ index 3af591caa..77569d444 100644
 From a86eebfdc401dbf1d77e5bed251d525879c36696 Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Tue, 30 Sep 2025 11:25:45 +0200
-Subject: [PATCH 22/24] Don't limit PID usage on guests
+Subject: [PATCH 22/25] Don't limit PID usage on guests
 
 ---
  .../proxy/modules/vdi_broker/vdi_container_manager.cpp | 10 ++++++++--
@@ -7280,7 +7280,7 @@ index 77569d444..c306f6c07 100644
 From 61c405d3bbad0f25ee042542befa0feaa1b5b2b0 Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Tue, 30 Sep 2025 12:03:29 +0200
-Subject: [PATCH 23/24] Added polling for config file, added resource
+Subject: [PATCH 23/25] Added polling for config file, added resource
  limitation per-user and global
 
 ---
@@ -7745,7 +7745,7 @@ index c306f6c07..e281819fb 100644
 From d238087c7dc9f59a5d9052391a2fb3e2b872348e Mon Sep 17 00:00:00 2001
 From: Marco Martini <marco.martini.7@studenti.unipd.it>
 Date: Tue, 30 Sep 2025 12:34:05 +0200
-Subject: [PATCH 24/24] Added support for multiple rendering devices
+Subject: [PATCH 24/25] Added support for multiple rendering devices
 
 ---
  .../proxy/modules/vdi_broker/vdi_broker.cpp   |  15 +-
@@ -8093,6 +8093,44 @@ index e281819fb..6e6a94b91 100644
      root["devices"] = devices;
  
      const bool nvidiaEnabled = config.NvidiaGpuEnabled();
+-- 
+2.51.0
+
+
+From 219d5d75d3fbe13d3c3dcc960137e1e351af9966 Mon Sep 17 00:00:00 2001
+From: Marco Martini <marco.martini.7@studenti.unipd.it>
+Date: Tue, 30 Sep 2025 18:58:59 +0200
+Subject: [PATCH 25/25] Removed useless pam passthrough on VDI, removed
+ nvidia-modeset mount as no longer needed
+
+---
+ server/proxy/modules/vdi_broker/vdi_container_manager.cpp | 6 +-----
+ 1 file changed, 1 insertion(+), 5 deletions(-)
+
+diff --git a/server/proxy/modules/vdi_broker/vdi_container_manager.cpp b/server/proxy/modules/vdi_broker/vdi_container_manager.cpp
+index 6e6a94b91..f672c4143 100644
+--- a/server/proxy/modules/vdi_broker/vdi_container_manager.cpp
++++ b/server/proxy/modules/vdi_broker/vdi_container_manager.cpp
+@@ -800,10 +800,6 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
+ 
+     root["systemd"] = "always";
+ 
+-    const auto pamPath = config.PamPath();
+-    if (!pamPath.empty())
+-        appendMount(pamPath, pamPath, true);
+-
+     const auto customMounts = config.CustomMounts();
+     for (const auto& mount : customMounts)
+         appendMount(mount.source, mount.destination, mount.readOnly);
+@@ -812,7 +808,7 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
+     {
+         const std::string base = "/dev/nvidia" + std::to_string(config.NvidiaGpuSlot());
+         const std::array<std::string, 6> nvidiaDevices = {
+-            "/dev/nvidia-caps", base, "/dev/nvidiactl", "/dev/nvidia-modeset",
++            "/dev/nvidia-caps", base, "/dev/nvidiactl",
+             "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"};
+ 
+         for (const auto& dev : nvidiaDevices)
 -- 
 2.51.0
 
