@@ -36,7 +36,7 @@ VDI ORCHESTRATED RDP THROUGH INTERLEAVED CONTAINERIZED EXECUTION
 
 ## Runtime assumptions
 - `/etc/vdi` is baked into the image from the `config/` directory and now includes the `VORTICE-vdi` build context sourced from the submodule alongside `config.ini`, `vdi_broker.yaml`, and TLS assets.
-- With the container runtime socket (`/run/podman/podman.sock` or `/var/run/docker.sock`) mounted, the broker provisions downstream containers directly; bind the PAM stack at `pam_path` and, if you need to override the baked template, mount an alternate build context over `/etc/vdi/VORTICE-vdi` to match the `dockerfile_path` setting.
+- With the container runtime socket (`/run/podman/podman.sock` or `/var/run/docker.sock`) mounted, the broker provisions downstream containers directly. The image ships a sample `/etc/pam.d/vdi-broker` that authenticates against `/etc/shadow`; mount a different PAM stack at `pam_path` only when you need host-specific logic. Override the baked desktop template by binding an alternate build context over `/etc/vdi/VORTICE-vdi` to match the `dockerfile_path` setting.
 - The container listens on TCP `3389`.
 - The bundled `VORTICE-vdi` desktop image expects the host to passthrough `/etc/passwd`, `/etc/group`, and `/etc/shadow` (see `config/vdi_broker.yaml`). Ensure these mounts expose a `gnome-remote-desktop` user entry (`gnome-remote-desktop:x:960:960:GNOME Remote Desktop:/var/lib/gnome-remote-desktop:/usr/bin/nologin`) until the template adds a more flexible authentication model.
 
@@ -46,12 +46,14 @@ podman run --rm -it \
   --name vortice \
   -p 3389:3389 \
   -v /run/podman/podman.sock:/run/podman/podman.sock:Z \
-  -v /etc/pam.d/vdi-broker:/etc/pam.d/vdi-broker:ro \
+  -v ./config/pam.d/vdi-broker:/etc/pam.d/vdi-broker:ro \
   -v ./config/vdi_broker.yaml:/etc/vdi/vdi_broker.yaml:ro,Z \
   -v /path/to/desktop-context:/etc/vdi/VORTICE-vdi:Z \
   vortice
 ```
 Ensure that `/etc/vdi/VORTICE-vdi/Containerfile` matches the `dockerfile_path` set in `vdi_broker.yaml`. For Docker, replace the socket path with `/var/run/docker.sock` and drop the SELinux suffix if unsupported. After cloning this repository, keep the submodule in sync with `git submodule update` when the desktop template changes upstream.
+
+To reuse an existing host-managed PAM stack instead of the bundled example, replace the volume mount in the command above with `-v /etc/pam.d/vdi-broker:/etc/pam.d/vdi-broker:ro` (and adjust the `pam_path` if the service file lives elsewhere).
 
 ## docker-compose / podman-compose
 ```yaml
@@ -68,7 +70,8 @@ services:
       - /etc/shadow:/etc/shadow
       - /etc/group:/etc/group
       - /etc/passwd:/etc/passwd
-      - /etc/pam.d/vdi-broker:/etc/pam.d/vdi-broker:ro
+      - ./config/pam.d/vdi-broker:/etc/pam.d/vdi-broker:ro
+      # - /etc/pam.d/vdi-broker:/etc/pam.d/vdi-broker:ro  # optional host passthrough
       - ./VORTICE-vdi:/etc/vdi/VORTICE-vdi
     restart: unless-stopped
 ```

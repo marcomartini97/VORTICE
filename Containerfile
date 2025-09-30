@@ -84,6 +84,9 @@ RUN rm -rf /etc/krb5.conf
 
 COPY config /etc/vdi
 
+# Provide a default PAM service so the broker can authenticate against /etc/shadow
+COPY config/pam.d/vdi-broker /etc/pam.d/vdi-broker
+
 COPY VORTICE-vdi /etc/vdi/VORTICE-vdi
 
 COPY keys/ /tmp/keys/
