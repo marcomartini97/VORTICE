@@ -1,3 +1,6 @@
 [submodule "VORTICE-vdi"]
 	path = VORTICE-vdi
 	url = https://github.com/marcomartini97/VORTICE-vdi.git
+[submodule "VDI_Broker"]
+	path = VDI_Broker
+	url = https://github.com/marcomartini97/VDI_Broker.git

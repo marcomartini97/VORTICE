@@ -12,5 +12,6 @@ services:
       - /etc/passwd:/etc/passwd
       - ./config/pam.d/vdi-broker:/etc/pam.d/vdi-broker:ro # Optional, default uses shadow
       - ./config/vdi_broker.yaml:/etc/vdi/vdi_broker.yaml:ro
+      - ./logs:/var/log/vdi-broker
       - ./VORTICE-vdi:/etc/vdi/VORTICE-vdi
     restart: unless-stopped

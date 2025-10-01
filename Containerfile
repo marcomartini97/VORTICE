@@ -6,10 +6,7 @@ LABEL org.opencontainers.image.title="vortice" \
       org.opencontainers.image.source="https://github.com/marcomartini97/VORTICE" \
       org.opencontainers.image.vendor="vortice"
 
-ARG FREERDP_REPO=https://github.com/FreeRDP/FreeRDP.git
-ARG FREERDP_TAG=3.17.2
-
-WORKDIR /opt/build
+WORKDIR /opt
 
 RUN dnf -y update && \
     dnf -y install dnf-plugins-core && \
@@ -53,31 +50,38 @@ RUN dnf -y update && \
     dnf clean all && \
     rm -rf /var/cache/dnf
 
-RUN git clone --depth 1 --branch ${FREERDP_TAG} ${FREERDP_REPO} freerdp
+COPY VDI_Broker /opt/freerdp
 
-WORKDIR /opt/build/freerdp
+WORKDIR /opt/freerdp
 
-COPY vdi_broker.patch /tmp/vdi_broker.patch
+RUN rm -rf server/proxy/modules/bitmap-filter \
+           server/proxy/modules/demo \
+           server/proxy/modules/dyn-channel-dump
 
-RUN git apply --whitespace=nowarn /tmp/vdi_broker.patch
+RUN mkdir -p build
 
 RUN cmake -B build -G Ninja \
-        -DCMAKE_BUILD_TYPE=Release\
+        -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/usr/local \
         -DWITH_CLIENT=OFF \
         -DWITH_SERVER=ON \
 	-DWITH_SHADOW=OFF \
         -DWITH_PROXY=ON \
         -DWITH_PROXY_MODULES=ON \
+        -DWITH_PROXY_MODULES_AUTOLOAD=OFF \
         -DWITH_MANPAGES=OFF \
         -DWITH_IPP=OFF \
         -DWITH_CUPS=ON \
-        -DWITH_PULSE=ON && \
-    cmake --build build && \
+        -DWITH_PULSE=ON \
+        -DWITH_WINPR_TOOLS=OFF \
+        -DWITH_RDTK=OFF \
+        -DWITH_SAMPLE=OFF \
+        -DWITH_VERBOSE_WINPR_ASSERT=OFF && \
+    cmake --build build --target freerdp-proxy proxy-vdi-broker-plugin && \
     cmake --install build && \
     echo "/usr/local/lib64" > /etc/ld.so.conf.d/freerdp.conf && \
     ldconfig && \
-    rm -rf /opt/build
+    rm -rf /opt/freerdp
 
 # Remove Kerberos config (Default config segfaults)
 RUN rm -rf /etc/krb5.conf

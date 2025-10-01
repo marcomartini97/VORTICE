@@ -2,7 +2,7 @@ VDI ORCHESTRATED RDP THROUGH INTERLEAVED CONTAINERIZED EXECUTION
 
 # Vortice FreeRDP Proxy
 
-`vortice` builds a Fedora based image that compiles FreeRDP with the bundled `vdi_broker.patch`, installs `podman`, and launches `freerdp-proxy /etc/vdi/config.ini`. Clone the repository with `git clone --recurse-submodules` (or run `git submodule update --init --recursive` after cloning) to pull in the `VORTICE-vdi` desktop template.
+`vortice` builds a Fedora based image that compiles FreeRDP from the bundled `VDI_Broker` submodule, installs `podman`, and launches `freerdp-proxy /etc/vdi/config.ini`. Clone the repository with `git clone --recurse-submodules` (or run `git submodule update --init --recursive` after cloning) to pull in both the FreeRDP fork and the `VORTICE-vdi` desktop template.
 
 ## Build the image
 1. Review `config/config.ini` and `config/vdi_broker.yaml`. The broker defaults to `dockerfile_path: /etc/vdi/VORTICE-vdi/Containerfile`; initialize the `VORTICE-vdi` submodule (`git submodule update --init --recursive`) so the downstream desktop template is baked into the image build context.
@@ -10,29 +10,15 @@ VDI ORCHESTRATED RDP THROUGH INTERLEAVED CONTAINERIZED EXECUTION
 3. Build:
    - `podman build -t vortice .`
    - `docker build -t vortice .`
-   - Override the FreeRDP tag if necessary: `podman build --build-arg FREERDP_TAG=stable-3.5 -t vortice .`
+   The build always uses the `VDI_Broker` submodule (https://github.com/marcomartini97/VDI_Broker), which is a FreeRDP fork carrying the `vdi-broker` proxy module and supporting patches. Keep the submodule up to date with `git submodule update --remote` if you need newer changes.
 
-## Regenerating `vdi_broker.patch`
-`vdi_broker.patch` is curated in https://github.com/marcomartini97/VDI_Broker. This project only builds correctly with patches generated from that fork. To carry your own modifications, fork `marcomartini97/VDI_Broker`, push your commits there, and then follow the steps below to produce a patch against upstream FreeRDP.
-1. Work from a FreeRDP checkout that tracks both your fork (`origin`) and the official repository (`upstream`). If you need to add the upstream remote:
+## Updating `VDI_Broker`
+The FreeRDP fork that provides the proxy module lives in the `VDI_Broker` submodule at the repository root.
+1. Pull the latest commits from the fork:
    ```bash
-   git remote add upstream https://github.com/FreeRDP/FreeRDP.git
-   git fetch upstream
+   git submodule update --remote VDI_Broker
    ```
-2. Set the FreeRDP release tag you build against (the same value you pass as `FREERDP_TAG`) and ensure your feature branch is checked out:
-   ```bash
-   export FREERDP_TAG=3.17.2  # example
-   git checkout your-feature-branch
-   git fetch origin
-   git fetch --tags upstream
-   ```
-   Confirm the tag exists locally before generating the patch: `git show ${FREERDP_TAG}`.
-3. Create a patch that captures every commit between the upstream tag and your branch, then place it at the root of this repository:
-   ```bash
-   git format-patch --stdout "${FREERDP_TAG}"..HEAD > vdi_broker.patch
-   ```
-   The patch now contains all commits that your fork introduces relative to the official FreeRDP tag.
-4. Copy the refreshed `vdi_broker.patch` into this repository and rebuild the image. Regenerate the patch whenever you rebase or add commits so it continues to align with `FREERDP_TAG`.
+2. Inspect and commit the updated submodule reference alongside any local changes. If you maintain your own fork, update the submodule URL and point it at the desired commit before rebuilding the image.
 
 ## Runtime assumptions
 - `/etc/vdi` is baked into the image from the `config/` directory and now includes the `VORTICE-vdi` build context sourced from the submodule alongside `config.ini`, `vdi_broker.yaml`, and TLS assets.
@@ -66,6 +52,7 @@ services:
     volumes:
       - /run/podman/podman.sock:/run/podman/podman.sock
       - ./config/vdi_broker.yaml:/etc/vdi/vdi_broker.yaml:ro
+      - ./logs:/var/log/vdi-broker
       - /home:/home
       - /etc/shadow:/etc/shadow
       - /etc/group:/etc/group
