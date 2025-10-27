@@ -58,9 +58,9 @@ RUN rm -rf server/proxy/modules/bitmap-filter \
            server/proxy/modules/demo \
            server/proxy/modules/dyn-channel-dump
 
-RUN mkdir -p build
+RUN rm -rf build && mkdir build
 
-RUN cmake -B build -G Ninja \
+RUN cmake -S . -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/usr/local \
         -DWITH_CLIENT=OFF \
@@ -77,7 +77,7 @@ RUN cmake -B build -G Ninja \
         -DWITH_RDTK=OFF \
         -DWITH_SAMPLE=OFF \
         -DWITH_VERBOSE_WINPR_ASSERT=OFF && \
-    cmake --build build --target freerdp-proxy proxy-vdi-broker-plugin && \
+    cmake --build build --target freerdp-proxy proxy-vdi-broker-plugin vdi-redirector vdi-proxy && \
     cmake --install build && \
     echo "/usr/local/lib64" > /etc/ld.so.conf.d/freerdp.conf && \
     ldconfig && \
@@ -108,8 +108,12 @@ RUN KEYS_PATH=$(find /tmp/keys -maxdepth 1 -type f -name '*.pem' -print -quit) &
             -subj "/C=US/ST=VDI/L=Proxy/O=Vortice/OU=VDI/CN=freerdp-proxy"; \
     fi
 
+COPY container-entrypoint.sh /usr/local/bin/vortice-entrypoint.sh
+RUN chmod +x /usr/local/bin/vortice-entrypoint.sh
+
 EXPOSE 3389
 
 ENV FREERDP_PROXY_CONFIG=/etc/vdi/config.ini
 
-CMD ["/usr/local/bin/freerdp-proxy", "/etc/vdi/config.ini"]
+ENTRYPOINT ["/usr/local/bin/vortice-entrypoint.sh"]
+CMD []

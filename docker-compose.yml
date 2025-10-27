@@ -4,6 +4,15 @@ services:
     container_name: vortice
     ports:
       - "3389:3389"
+    environment:
+      VORTICE_BIND_ADDRESS: "0.0.0.0"
+      VORTICE_PORT: "3389"
+      VORTICE_REDIRECTOR_CONFIG: "/etc/vdi/vdi_broker.yaml"
+      VORTICE_CERTIFICATE: "/etc/vdi/cert.pem"
+      VORTICE_PRIVATE_KEY: "/etc/vdi/key.pem"
+      # VORTICE_ROUTING_TOKEN: "true"  # Enable routing tokens when required
+      VORTICE_LAUNCHER: "freerdp-proxy"  # Switch to freerdp-proxy; remember to update FREERDP_PROXY_CONFIG /etc/vdi/config.ini
+      # FREERDP_PROXY_CONFIG: "/etc/vdi/config.ini"  # Only read when VORTICE_LAUNCHER=freerdp-proxy
     volumes:
       - /run/podman/podman.sock:/run/podman/podman.sock
       - /home:/home
@@ -11,7 +20,7 @@ services:
       - /etc/group:/etc/group
       - /etc/passwd:/etc/passwd
       - ./config/pam.d/vdi-broker:/etc/pam.d/vdi-broker:ro # Optional, default uses shadow
-      - ./config/vdi_broker.yaml:/etc/vdi/vdi_broker.yaml:ro
+      - ./config/vdi_broker.yaml:/etc/vdi/vdi_broker.yaml
       - ./logs:/var/log/vdi-broker
       - ./VORTICE-vdi:/etc/vdi/VORTICE-vdi
     restart: unless-stopped
