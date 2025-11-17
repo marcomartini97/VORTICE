@@ -23,7 +23,12 @@ case "${launcher}" in
 			echo "Missing certificate (${cert_path}) or private key (${key_path}) required for vdi-redirector." >&2
 			exit 1
 		fi
-		redirector_args=("/usr/local/bin/vdi-redirector")
+		redirector_args=()
+		if command -v stdbuf >/dev/null 2>&1; then
+			# Force line-buffered stdout/stderr so logs surface immediately in container logs.
+			redirector_args+=("stdbuf" "-oL" "-eL")
+		fi
+		redirector_args+=("/usr/local/bin/vdi-redirector")
 		if [ -n "${bind_address}" ]; then
 			redirector_args+=("--bind" "${bind_address}")
 		fi
