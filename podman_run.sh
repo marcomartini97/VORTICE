@@ -8,6 +8,7 @@ podman run --rm -it \
   -e VORTICE_REDIRECTOR_CONFIG=/etc/vdi/vdi_broker.yaml \
   -e VORTICE_CERTIFICATE=/etc/vdi/cert.pem \
   -e VORTICE_PRIVATE_KEY=/etc/vdi/key.pem \
+  -e VORTICE_LAUNCHER=freerdp-proxy \
   -v /run/podman/podman.sock:/run/podman/podman.sock \
   -v /home:/home \
   -v /etc/shadow:/etc/shadow \
@@ -18,3 +19,4 @@ podman run --rm -it \
   -v $SCRIPTPATH/logs:/var/log/vdi-broker \
   -v $SCRIPTPATH/VORTICE-vdi:/etc/vdi/VORTICE-vdi \
   vortice
+
